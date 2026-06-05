@@ -224,6 +224,7 @@ function handleStatePost(req, res, options) {
             codexSource,
             displayHint: display_svg,
             sessionTitle,
+            toolName,
             assistantLastOutput,
             assistantLastOutputTruncated,
             permissionSuspect,

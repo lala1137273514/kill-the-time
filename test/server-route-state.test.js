@@ -145,6 +145,7 @@ describe("server-route-state POST", () => {
         codexSource: "vscode",
         displayHint: "display.svg",
         sessionTitle: "Work title",
+        toolName: null,
         assistantLastOutput: null,
         assistantLastOutputTruncated: false,
         permissionSuspect: true,
@@ -152,6 +153,19 @@ describe("server-route-state POST", () => {
         hookSource: "codex-official",
       },
     ]]);
+  });
+
+  it("forwards tool_name to updateSession for the glass-box HUD", async () => {
+    const res = await callStatePost(JSON.stringify({
+      state: "working",
+      session_id: "sid",
+      event: "PreToolUse",
+      tool_name: "WebSearch",
+    }));
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.calls.updateSession.length, 1);
+    assert.strictEqual(res.calls.updateSession[0][3].toolName, "WebSearch");
   });
 
   it("passes assistant last output metadata to updateSession", async () => {

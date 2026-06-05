@@ -914,6 +914,7 @@ function updateSession(sessionId, state, event, opts = {}) {
     permissionSuspect = false,
     preserveState = false,
     hookSource = null,
+    toolName = null,
     agentIdDefaulted = false,
     muteNotificationSound = false,
     transientPermissionEvent = false,
@@ -1074,7 +1075,27 @@ function updateSession(sessionId, state, event, opts = {}) {
   const srcLastStopAt = isStopBoundary
     ? Date.now()
     : (existing && Number.isFinite(existing.lastStopAt) ? existing.lastStopAt : null);
-  const base = { sourcePid: srcPid, wtHwnd: srcWtHwnd, cwd: srcCwd, editor: srcEditor, pidChain: srcPidChain, agentPid: srcAgentPid, agentId: srcAgentId, host: srcHost, headless: srcHeadless, platform: srcPlatform, model: srcModel, provider: srcProvider, codexOriginator: srcCodexOriginator, codexSource: srcCodexSource, sessionTitle: srcSessionTitle, assistantLastOutput: srcAssistantLastOutput, assistantLastOutputTruncated: srcAssistantLastOutputTruncated, recentEvents, pidReachable, lastToolBoundaryAt: srcLastToolBoundaryAt, lastStopAt: srcLastStopAt, awaitingInputSinceStop: resolveAwaitingInputSinceStop(existing, event), muteNotificationSound: state === "notification" && muteNotificationSound === true };
+  // Glass-box transparency (demo/kill-boring-loading): track the live tool the
+  // agent is running so the HUD can show "what it's actually doing" instead of
+  // an opaque spinner. PreToolUse/PostToolUse carry tool_name; a new turn
+  // (UserPromptSubmit) or end-of-turn/error clears it so stale tools don't linger.
+  const clearsCurrentTool = event === "UserPromptSubmit" || event === "Stop"
+    || event === "StopFailure" || event === "SessionEnd" || event === "PostCompact"
+    || event === "ApiError";
+  const srcCurrentTool = toolName
+    ? toolName
+    : (clearsCurrentTool ? null : ((existing && existing.currentTool) || null));
+  // Count live parallel subagents so the HUD can show "fanned out ×N" next to
+  // the juggling animation. SubagentStart/Stop step the counter; a turn
+  // boundary resets it (Claude may launch Task subagents as synthetic
+  // SubagentStart without a matching SubagentStop — see clawd-hook isTaskToolStart).
+  const prevSubagentCount = (existing && Number.isFinite(existing.subagentCount)) ? existing.subagentCount : 0;
+  let srcSubagentCount;
+  if (isSubagentStart) srcSubagentCount = prevSubagentCount + 1;
+  else if (isSubagentStop) srcSubagentCount = Math.max(0, prevSubagentCount - 1);
+  else if (clearsCurrentTool) srcSubagentCount = 0;
+  else srcSubagentCount = prevSubagentCount;
+  const base = { sourcePid: srcPid, wtHwnd: srcWtHwnd, cwd: srcCwd, editor: srcEditor, pidChain: srcPidChain, agentPid: srcAgentPid, agentId: srcAgentId, host: srcHost, headless: srcHeadless, platform: srcPlatform, model: srcModel, provider: srcProvider, codexOriginator: srcCodexOriginator, codexSource: srcCodexSource, sessionTitle: srcSessionTitle, currentTool: srcCurrentTool, subagentCount: srcSubagentCount, assistantLastOutput: srcAssistantLastOutput, assistantLastOutputTruncated: srcAssistantLastOutputTruncated, recentEvents, pidReachable, lastToolBoundaryAt: srcLastToolBoundaryAt, lastStopAt: srcLastStopAt, awaitingInputSinceStop: resolveAwaitingInputSinceStop(existing, event), muteNotificationSound: state === "notification" && muteNotificationSound === true };
   if (preserveCompletionAck) base.requiresCompletionAck = true;
 
   // Evict oldest session if at capacity and this is a new session.

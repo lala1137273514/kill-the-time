@@ -228,8 +228,24 @@ function createRowForSession(session, now) {
   if (chipInfo) {
     const chip = document.createElement("span");
     chip.className = `state-chip ${chipInfo.cls}`;
-    chip.textContent = chipInfo.label;
+    // Glass-box: show how many subagents are fanned out in parallel during
+    // juggling, so the wait reads as real work, not an opaque spinner.
+    const fanout = Number(session.subagentCount);
+    chip.textContent = (session.state === "juggling" && fanout > 1)
+      ? `${chipInfo.label} ×${fanout}`
+      : chipInfo.label;
     right.appendChild(chip);
+    hasRightContent = true;
+  }
+
+  // Glass-box transparency: surface the live tool the agent is running so the
+  // wait shows real telemetry instead of an opaque spinner (demo/kill-boring-loading).
+  if (session.badge === "running" && session.currentTool) {
+    const tool = document.createElement("span");
+    tool.className = "tool-chip";
+    tool.textContent = session.currentTool;
+    tool.title = session.currentTool;
+    right.appendChild(tool);
     hasRightContent = true;
   }
 
