@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onPlaySound: (cb) => ipcRenderer.on("play-sound", (_, payload) => cb(payload)),
   onInvalidateSoundCache: (cb) => ipcRenderer.on("invalidate-sound-cache", (_, url) => cb(url)),
   reportSoundPlaybackError: (payload) => ipcRenderer.send("sound-playback-error", payload),
+  // Glass-box voice (demo/kill-boring-loading): push-to-talk toggle from main,
+  // and the recorded clip back to main for local-whisper transcription.
+  onGlassboxRecordToggle: (cb) => ipcRenderer.on("glassbox-record-toggle", () => cb()),
+  sendGlassboxClip: (buffer, mime) => ipcRenderer.send("glassbox-voice-clip", { buffer, mime }),
   // Render window → main (cursor polling control during reactions)
   pauseCursorPolling: () => ipcRenderer.send("pause-cursor-polling"),
   resumeFromReaction: () => ipcRenderer.send("resume-from-reaction"),

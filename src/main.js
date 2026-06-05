@@ -228,6 +228,11 @@ let _telegramMigrationController = null;
 let telegramNativeRunner = null;
 let telegramCompanion = null;
 let telegramDirectSend = null;
+// Glass-box voice narration (demo/kill-boring-loading). Opt-in via
+// CLAWD_GLASSBOX_VOICE=1; stays null otherwise so normal runs are untouched.
+let glassboxVoice = null;
+// Glass-box push-to-talk listener (same opt-in flag). Null unless enabled.
+let glassboxListen = null;
 let suppressTelegramApprovalSidecarSync = 0;
 let hardwareBuddyAdapter = null;
 let hardwareBuddyStatus = null;
@@ -1149,6 +1154,11 @@ const _stateCtx = {
     if (telegramCompanion) {
       try { telegramCompanion.onSnapshot(snapshot); } catch {}
     }
+    // Glass-box voice: speak milestones as the wait unfolds. Best-effort —
+    // a narration error must never block the broadcast or crash the pet.
+    if (glassboxVoice) {
+      try { glassboxVoice.onSnapshot(snapshot); } catch {}
+    }
   },
   // Phase 3b: 读 prefs.themeOverrides 判断某个 oneshot state 是否被用户禁用。
   // state.js gate 调这个做 early-return。不做白名单校验——settings-actions
@@ -1187,6 +1197,58 @@ const _stateCtx = {
   },
 };
 const _state = require("./state")(_stateCtx);
+// Glass-box voice narration host (opt-in). Built here so sendToRenderer /
+// soundVolume / sessionLog are all defined; the snapshot tap in
+// broadcastSessionSnapshot above closes over the module-scope `glassboxVoice`.
+if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
+  try {
+    const { GlassboxVoice } = require("./glassbox-voice");
+    const glassboxTts = require("./glassbox-tts");
+    const osMod = require("os");
+    const fsMod = require("fs");
+    const pathMod = require("path");
+    const { pathToFileURL } = require("url");
+    let voiceSeq = 0;
+    glassboxVoice = new GlassboxVoice({
+      synth: (text) => glassboxTts.synthesize(text),
+      play: (buf) => {
+        const file = pathMod.join(osMod.tmpdir(), `clawd-glassbox-${process.pid}-${voiceSeq++}.wav`);
+        fsMod.writeFileSync(file, buf);
+        sendToRenderer("play-sound", { url: pathToFileURL(file).href, volume: soundVolume });
+      },
+      now: () => Date.now(),
+      log: (msg) => sessionLog(msg),
+    });
+    sessionLog("glassbox-voice: enabled (CLAWD_GLASSBOX_VOICE=1)");
+
+    // D3 push-to-talk listener: local-whisper transcribe -> intent -> act.
+    // approve/deny resolves the newest pending permission (real); a task/answer
+    // utterance is copied to the clipboard (clawd has no stdin into the agent).
+    const { GlassboxListener } = require("./glassbox-listen");
+    const glassboxAsr = require("./glassbox-asr");
+    glassboxListen = new GlassboxListener({
+      transcribe: (wavPath) => glassboxAsr.transcribe(wavPath, {}),
+      getPending: () => ({
+        permissionPending: typeof _perm.getActionablePermissions === "function"
+          && _perm.getActionablePermissions().length > 0,
+      }),
+      resolvePermission: (behavior) => {
+        if (typeof _perm.hotkeyResolve !== "function") return;
+        _perm.hotkeyResolve(behavior === "deny" ? "deny" : "allow",
+          behavior === "deny" ? "Denied via voice" : undefined);
+      },
+      onText: (route) => {
+        // No stdin channel into the agent — stage the text on the clipboard so
+        // the user can paste it. Honest, not a fake injection.
+        try { clipboard.writeText(route.text || ""); } catch {}
+        sessionLog(`glassbox-voice: staged ${route.action} to clipboard: ${(route.text || "").slice(0, 40)}`);
+      },
+      log: (msg) => sessionLog(msg),
+    });
+  } catch (err) {
+    sessionLog(`glassbox-voice: init failed: ${err && err.message}`);
+  }
+}
 const { setState, applyState, updateSession, resolveDisplayState, getSvgOverride,
         enableDoNotDisturb, disableDoNotDisturb, startStaleCleanup, stopStaleCleanup,
         startWakePoll, stopWakePoll, detectRunningAgentProcesses,
@@ -1454,6 +1516,28 @@ ipcMain.on("sound-playback-error", (_event, payload) => {
     ? payload.message.replace(/\s+/g, " ").slice(0, 240)
     : "unknown";
   sessionLog(`sound playback error phase=${phase || "unknown"} message=${message || "unknown"}`);
+});
+
+// Glass-box voice: receive a recorded push-to-talk clip, write it to a temp
+// file, and hand it to the listener (local whisper -> intent -> act). Inert
+// unless CLAWD_GLASSBOX_VOICE=1 built the listener.
+ipcMain.on("glassbox-voice-clip", (_event, payload) => {
+  if (!glassboxListen) return;
+  try {
+    const buffer = payload && payload.buffer;
+    if (!buffer) return;
+    const mime = payload && typeof payload.mime === "string" ? payload.mime : "audio/webm";
+    const ext = /wav/i.test(mime) ? "wav" : (/ogg/i.test(mime) ? "ogg" : "webm");
+    const os = require("os");
+    const fsp = require("fs");
+    const file = require("path").join(os.tmpdir(), `clawd-voice-${process.pid}-${Date.now()}.${ext}`);
+    fsp.writeFileSync(file, Buffer.from(buffer));
+    Promise.resolve(glassboxListen.onUtterance(file))
+      .catch((err) => sessionLog(`glassbox-voice: onUtterance failed: ${err && err.message}`))
+      .finally(() => { try { fsp.unlinkSync(file); } catch {} });
+  } catch (err) {
+    sessionLog(`glassbox-voice: clip handling failed: ${err && err.message}`);
+  }
 });
 
 function focusLog(msg) {
@@ -3069,6 +3153,28 @@ if (!gotTheLock) {
       console.warn("Clawd: migration controller init failed:", err && err.message);
     });
     createWindow();
+    // Glass-box voice push-to-talk hotkey (opt-in). Toggle recording in the pet
+    // renderer; the clip round-trips to local whisper. Default accel overridable
+    // via CLAWD_GLASSBOX_HOTKEY. Registered once; cleared by unregisterAll on quit.
+    if (glassboxListen) {
+      // Electron denies renderer getUserMedia unless a handler grants it. Only
+      // when the feature is on: grant "media", keep default-deny for the rest.
+      try {
+        const { session } = require("electron");
+        session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+          callback(permission === "media");
+        });
+      } catch (err) {
+        sessionLog(`glassbox-voice: permission handler failed: ${err && err.message}`);
+      }
+      const accel = process.env.CLAWD_GLASSBOX_HOTKEY || "CommandOrControl+Alt+Space";
+      try {
+        const ok = globalShortcut.register(accel, () => sendToRenderer("glassbox-record-toggle"));
+        sessionLog(`glassbox-voice: push-to-talk hotkey ${accel} ${ok ? "registered" : "FAILED (conflict?)"}`);
+      } catch (err) {
+        sessionLog(`glassbox-voice: hotkey register threw: ${err && err.message}`);
+      }
+    }
     if (shouldOpenSettingsWindowFromArgv(process.argv)) {
       settingsWindowRuntime.open();
     }

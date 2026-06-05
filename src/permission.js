@@ -1787,6 +1787,10 @@ return {
   dismissPermissionsForDnd,
   syncPermissionShortcuts,
   replyOpencodePermission,
+  // Exposed for glass-box voice (demo/kill-boring-loading): let the voice
+  // listener answer the newest pending permission the same way the hotkey does.
+  getActionablePermissions,
+  hotkeyResolve,
 };
 
 };
