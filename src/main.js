@@ -1316,7 +1316,7 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
       orchestrate: (text, octx) => glassboxOrchestrator.orchestrate(text, octx, {}),
       getForegroundWindow: resolveForegroundWindow,
       takeScreenshot: captureScreenshot,
-      dispatchFn: (plan) => glassboxDispatch.dispatch(plan, {}),
+      dispatchFn: (plan, o) => glassboxDispatch.dispatch(plan, { onComplete: o && o.onComplete }),
       getSessionIdle: (sid) => {
         const snap = (_state && typeof _state.buildSessionSnapshot === "function")
           ? _state.buildSessionSnapshot() : { sessions: [] };
@@ -1333,17 +1333,18 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
         sessionLog(`glassbox-remote: staged answer to clipboard: ${(route.text || "").slice(0, 40)}`);
       },
       speak: (text) => { try { glassboxVoice && glassboxVoice.speak(text); } catch {} },
-      confirmWrite: async (decision) => {
-        // Spec §4-4: write/delete/network needs a yes first. A modal dialog is
-        // the honest gate here (voice confirm is a later enhancement).
+      confirmDispatch: async (decision) => {
+        // Recap + confirm before every dispatch (spec §6: don't burn an agent
+        // run on a misheard command). Write/delete/network gets a louder prompt.
+        const isWrite = decision && decision.risk === "write";
         try {
           const { response } = await dialog.showMessageBox({
             type: "question",
-            buttons: ["取消", "确认"],
-            defaultId: 1,
+            buttons: ["取消", "确认派活"],
+            defaultId: isWrite ? 0 : 1,
             cancelId: 0,
-            message: "要让 agent 执行写 / 删 / 联网类操作吗？",
-            detail: decision.refinedPrompt || "",
+            message: isWrite ? "⚠️ 这会写 / 删文件或联网，确认让 agent 执行吗？" : "确认把这件事派给 agent 吗？",
+            detail: decision && decision.refinedPrompt || "",
           });
           return response === 1;
         } catch { return false; }

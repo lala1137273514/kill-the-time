@@ -18,6 +18,13 @@ function fakeChild() {
   return child;
 }
 
+function fakeChildWithIo() {
+  const child = fakeChild();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  return child;
+}
+
 describe("glassbox-dispatch helpers", () => {
   it("appendScreenshot adds an @ reference once", () => {
     assert.strictEqual(appendScreenshot("整理要点", "C:/t/shot.png"), "整理要点 @C:/t/shot.png");
@@ -150,6 +157,29 @@ describe("glassbox-dispatch dispatch", () => {
       () => dispatch({ agent: "claude", mode: "new", cwd: "/w", prompt: "  " }, { spawnFn: () => fakeChild() }),
       /empty prompt/
     );
+  });
+
+  it("captures stdout and fires onComplete on close when a callback is given", () => {
+    const child = fakeChildWithIo();
+    let result = null;
+    dispatch(
+      { agent: "claude", mode: "new", cwd: "/w", prompt: "整理" },
+      { spawnFn: () => child, onComplete: (r) => { result = r; } }
+    );
+    child.stdout.emit("data", "整理完成：要点A、");
+    child.stdout.emit("data", "要点B");
+    child.emit("close", 0);
+    assert.strictEqual(result.code, 0);
+    assert.match(result.output, /要点A、要点B/);
+  });
+
+  it("does not require stdout plumbing when no onComplete is given", () => {
+    const child = fakeChild(); // no stdout/stderr
+    assert.doesNotThrow(() => dispatch(
+      { agent: "claude", mode: "new", cwd: "/w", prompt: "x" },
+      { spawnFn: () => child }
+    ));
+    child.emit("close", 0); // must not blow up
   });
 
   it("surfaces a spawn error via the child error event without throwing synchronously", () => {

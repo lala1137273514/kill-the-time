@@ -3,7 +3,7 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
 
-const { GlassboxRemote } = require("../src/glassbox-remote");
+const { GlassboxRemote, summarizeForSpeech } = require("../src/glassbox-remote");
 
 // Build a remote with sensible spies; override per test.
 function makeRemote(over = {}) {
@@ -14,18 +14,19 @@ function makeRemote(over = {}) {
     permissions: [],
     answers: [],
     confirms: 0,
+    onComplete: null,
   };
   const deps = {
     orchestrate: over.orchestrate || (async () => ({ action: "chat", reply: "在的" })),
     getForegroundWindow: over.getForegroundWindow ||
       (async () => ({ hwnd: "1", pid: 2, title: "T", sessionId: null, cwd: "/work", agentId: "claude-code" })),
     takeScreenshot: over.takeScreenshot || (async () => { calls.screenshots++; return "/t/shot.png"; }),
-    dispatchFn: over.dispatchFn || ((plan) => { calls.dispatched.push(plan); return { command: "claude" }; }),
+    dispatchFn: over.dispatchFn || ((plan, o) => { calls.dispatched.push(plan); calls.onComplete = o && o.onComplete; return { command: "claude" }; }),
     getSessionIdle: over.getSessionIdle || (() => false),
     resolvePermission: over.resolvePermission || ((b) => calls.permissions.push(b)),
     onAnswer: over.onAnswer || ((r) => calls.answers.push(r)),
     speak: over.speak || ((t) => calls.spoken.push(t)),
-    confirmWrite: over.confirmWrite || (async () => { calls.confirms++; return true; }),
+    confirmDispatch: over.confirmDispatch || (async () => { calls.confirms++; return true; }),
     getPending: over.getPending || (() => ({})),
     defaultCwd: "defaultCwd" in over ? over.defaultCwd : "/home/me",
     log: () => {},
@@ -33,17 +34,37 @@ function makeRemote(over = {}) {
   return { remote: new GlassboxRemote(deps), calls };
 }
 
+describe("glassbox-remote summarizeForSpeech", () => {
+  it("returns short text unchanged", () => {
+    assert.strictEqual(summarizeForSpeech("要点A、要点B"), "要点A、要点B");
+  });
+  it("collapses whitespace and newlines", () => {
+    assert.strictEqual(summarizeForSpeech("  整理\n\n 完成  "), "整理 完成");
+  });
+  it("truncates long text with an ellipsis", () => {
+    const s = summarizeForSpeech("一".repeat(80), 50);
+    assert.ok(s.length <= 51);
+    assert.ok(s.endsWith("…"));
+  });
+  it("returns empty for blank input", () => {
+    assert.strictEqual(summarizeForSpeech("   \n "), "");
+    assert.strictEqual(summarizeForSpeech(null), "");
+  });
+});
+
 describe("GlassboxRemote", () => {
-  it("dispatches a read-risk task with a screenshot and speaks the reply", async () => {
+  it("recaps then confirms before dispatching, screenshots, and speaks the receipt", async () => {
     const { remote, calls } = makeRemote({
       orchestrate: async () => ({ action: "dispatch", refinedPrompt: "整理要点", needCapture: true, risk: "read", reply: "好的，已让 Claude 处理" }),
     });
     await remote.handle("帮我整理当前窗口");
     assert.strictEqual(calls.screenshots, 1);
+    assert.strictEqual(calls.confirms, 1); // every dispatch is confirmed now
     assert.strictEqual(calls.dispatched.length, 1);
     assert.strictEqual(calls.dispatched[0].prompt, "整理要点 @/t/shot.png");
-    assert.strictEqual(calls.confirms, 0); // read risk: no confirm
-    assert.deepStrictEqual(calls.spoken, ["好的，已让 Claude 处理"]);
+    // recap spoken before the receipt
+    assert.ok(calls.spoken.some((t) => t.includes("整理要点") && /对吗/.test(t)));
+    assert.ok(calls.spoken.includes("好的，已让 Claude 处理"));
   });
 
   it("does not screenshot when needCapture is false", async () => {
@@ -55,25 +76,26 @@ describe("GlassboxRemote", () => {
     assert.strictEqual(calls.dispatched[0].prompt, "跑测试");
   });
 
-  it("confirms before a write-risk task and dispatches when approved", async () => {
-    const { remote, calls } = makeRemote({
-      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "改配置", needCapture: false, risk: "write", reply: "好的" }),
-      confirmWrite: async () => true,
-    });
-    await remote.handle("把配置改了");
-    assert.strictEqual(calls.dispatched.length, 1);
-  });
-
-  it("aborts a write-risk task when confirmation is declined", async () => {
+  it("aborts when confirmation is declined", async () => {
     const spoken = [];
     const { remote, calls } = makeRemote({
       orchestrate: async () => ({ action: "dispatch", refinedPrompt: "删文件", needCapture: false, risk: "write", reply: "好的" }),
-      confirmWrite: async () => false,
+      confirmDispatch: async () => false,
       speak: (t) => spoken.push(t),
     });
     await remote.handle("删掉这个文件");
     assert.strictEqual(calls.dispatched.length, 0);
-    assert.ok(spoken.some((t) => /取消|不动/.test(t)));
+    assert.ok(spoken.some((t) => /取消/.test(t)));
+  });
+
+  it("speaks a result summary when the dispatched run completes", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "整理", needCapture: false, risk: "read", reply: "好的" }),
+    });
+    await remote.handle("整理一下");
+    assert.strictEqual(typeof calls.onComplete, "function");
+    calls.onComplete({ code: 0, output: "前面一些过程日志\n整理完成：共 5 个要点已写入 notes.md" });
+    assert.ok(calls.spoken.some((t) => /整理完成|要点/.test(t)));
   });
 
   it("resumes an idle matched claude session", async () => {
@@ -87,7 +109,7 @@ describe("GlassboxRemote", () => {
     assert.strictEqual(calls.dispatched[0].sessionId, "s7");
   });
 
-  it("asks for a directory instead of guessing when no cwd is available", async () => {
+  it("asks for a directory instead of guessing — and never reaches confirm", async () => {
     const spoken = [];
     const { remote, calls } = makeRemote({
       getForegroundWindow: async () => ({ title: "Notepad", sessionId: null, cwd: null, agentId: null }),
@@ -97,6 +119,7 @@ describe("GlassboxRemote", () => {
     });
     await remote.handle("帮我做个东西");
     assert.strictEqual(calls.dispatched.length, 0);
+    assert.strictEqual(calls.confirms, 0);
     assert.ok(spoken.some((t) => /目录|哪/.test(t)));
   });
 

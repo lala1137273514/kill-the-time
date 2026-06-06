@@ -19,6 +19,20 @@
 
 const { planDispatch } = require("./glassbox-dispatch");
 
+// Collapse a long prompt / agent output into one short spoken line. Used for the
+// pre-dispatch recap ("我要让它：… 对吗？") and the completion summary — the small
+// screen / TTS shouldn't replay a wall of text (spec §4-3).
+function summarizeForSpeech(text, maxLen = 50) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  return s.length <= maxLen ? s : s.slice(0, maxLen) + "…";
+}
+
+function lastMeaningfulLine(text) {
+  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  return lines.length ? lines[lines.length - 1] : "";
+}
+
 class GlassboxRemote {
   constructor(deps = {}) {
     const need = (name) => {
@@ -30,10 +44,10 @@ class GlassboxRemote {
     this.orchestrate = need("orchestrate");           // (text, ctx) -> decision
     this.getForegroundWindow = need("getForegroundWindow"); // () -> Promise<window|null>
     this.takeScreenshot = need("takeScreenshot");     // (window) -> Promise<path>
-    this.dispatchFn = need("dispatchFn");             // (plan) -> handle
+    this.dispatchFn = need("dispatchFn");             // (plan, {onComplete}) -> handle
     this.resolvePermission = need("resolvePermission"); // ("allow"|"deny") -> void
     this.speak = need("speak");                       // (text) -> void
-    this.confirmWrite = need("confirmWrite");         // (decision) -> Promise<bool>
+    this.confirmDispatch = need("confirmDispatch");   // (decision) -> Promise<bool>
     this.getSessionIdle = typeof deps.getSessionIdle === "function" ? deps.getSessionIdle : () => false;
     this.onAnswer = typeof deps.onAnswer === "function" ? deps.onAnswer : () => {};
     this.getPending = typeof deps.getPending === "function" ? deps.getPending : () => ({});
@@ -99,15 +113,6 @@ class GlassboxRemote {
       }
     }
 
-    // Write/delete/network needs a yes first (spec §4-4); reads run straight.
-    if (decision.risk === "write") {
-      const ok = await this.confirmWrite(decision);
-      if (!ok) {
-        this.speak("好的，那就不动了，已取消");
-        return;
-      }
-    }
-
     const sessionId = window && window.sessionId;
     const plan = planDispatch({
       window: window || {},
@@ -117,14 +122,29 @@ class GlassboxRemote {
       sessionIdle: sessionId ? !!this.getSessionIdle(sessionId) : false,
     });
 
-    // Don't guess a directory (spec §6 risk). Ask instead.
+    // Don't guess a directory (spec §6 risk). Ask before we even confirm.
     if (!plan.cwd) {
       this.speak("我不确定在哪个目录跑，帮我指一下");
       return;
     }
 
+    // Recap out loud, then confirm before every dispatch — cheap insurance
+    // against a misheard utterance burning a whole agent run (spec §6 risk).
+    const recap = summarizeForSpeech(decision.refinedPrompt);
+    if (recap) this.speak(`我要让它：${recap}，对吗？`);
+    const ok = await this.confirmDispatch(decision);
+    if (!ok) {
+      this.speak("好，取消了");
+      return;
+    }
+
     try {
-      this.dispatchFn(plan);
+      this.dispatchFn(plan, {
+        onComplete: (result) => {
+          const summary = summarizeForSpeech(lastMeaningfulLine(result && result.output));
+          this.speak(summary ? `搞定，${summary}` : "搞定了，结果在终端里");
+        },
+      });
     } catch (err) {
       this.log(`glassbox-remote: dispatch failed: ${err && err.message}`);
       this.speak("派活没成功，你看下终端");
@@ -134,4 +154,4 @@ class GlassboxRemote {
   }
 }
 
-module.exports = { GlassboxRemote };
+module.exports = { GlassboxRemote, summarizeForSpeech };

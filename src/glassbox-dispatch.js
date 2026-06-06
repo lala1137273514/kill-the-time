@@ -79,13 +79,16 @@ function dispatch(plan = {}, opts = {}) {
   const command = commandFor(plan.agent, opts);
   const args = buildArgs(plan);
   const spawnFn = opts.spawnFn || defaultSpawn;
+  // Capture stdout only when a completion callback wants it (for the spoken
+  // result summary). Otherwise stay fully detached.
+  const wantOutput = typeof opts.onComplete === "function";
   const spawnOpts = {
     cwd: plan.cwd || undefined,
     // claude/codex on Windows are .cmd shims; PATH resolution needs a shell.
     shell: process.platform === "win32",
     windowsHide: true,
     detached: false,
-    stdio: "ignore",
+    stdio: wantOutput ? ["ignore", "pipe", "pipe"] : "ignore",
     env: opts.env || process.env,
   };
   const child = spawnFn(command, args, spawnOpts);
@@ -93,6 +96,21 @@ function dispatch(plan = {}, opts = {}) {
   // can observe via handle.onError(); progress otherwise arrives through hooks.
   const swallow = () => {};
   if (child && typeof child.on === "function") child.on("error", swallow);
+
+  if (wantOutput) {
+    let output = "";
+    if (child && child.stdout && typeof child.stdout.on === "function") {
+      child.stdout.on("data", (d) => { output += String(d); });
+    }
+    if (child && child.stderr && typeof child.stderr.on === "function") {
+      child.stderr.on("data", () => {}); // drain so the pipe never stalls
+    }
+    if (child && typeof child.on === "function") {
+      child.on("close", (code) => {
+        try { opts.onComplete({ code, output: output.trim() }); } catch {}
+      });
+    }
+  }
   if (child && typeof child.unref === "function") child.unref();
 
   return {
