@@ -92,7 +92,10 @@ async function transcribe(wavPath, opts = {}) {
         return done(reject, new Error(`glassbox-asr: whisper exited ${code}: ${stderr.slice(0, 200)}`));
       }
       try {
-        done(resolve, parseTranscript(readFileFn(outPath)));
+        const text = parseTranscript(readFileFn(outPath));
+        // Clean up the transcript whisper wrote — we own it. Best-effort.
+        try { (opts.unlinkFn || require("node:fs").unlinkSync)(outPath); } catch {}
+        done(resolve, text);
       } catch (err) {
         done(reject, new Error(`glassbox-asr: could not read transcript (${outPath}): ${err && err.message}`));
       }

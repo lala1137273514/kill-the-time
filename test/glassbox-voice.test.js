@@ -60,17 +60,30 @@ describe("glassbox-voice GlassboxVoice", () => {
     assert.strictEqual(plays.length, 0);
   });
 
-  it("drops a line while one is still in flight (no pile-up)", async () => {
+  it("does not pile up lines while one is still in flight", async () => {
     let release;
     const gate = new Promise((r) => { release = r; });
     const { deps: d, plays } = deps({ synth: async () => { await gate; return Buffer.from("x"); } });
     const v = new GlassboxVoice(d);
     v.onSnapshot(snap([{ id: "a", badge: "running" }], "a")); // start -> speaking
-    // a transition to error would be a 2nd milestone, but we're still speaking
-    v.onSnapshot(snap([{ id: "a", badge: "running", state: "error" }], "a"));
+    v.onSnapshot(snap([{ id: "a", badge: "running", subagentCount: 3 }], "a")); // ignored while speaking
     release();
     await v._inflight;
     assert.strictEqual(plays.length, 1);
+  });
+
+  it("re-detects a milestone that arrived while speaking (done is never lost)", async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const { deps: d, plays } = deps({ synth: async () => { await gate; return Buffer.from("x"); } });
+    const v = new GlassboxVoice(d);
+    v.onSnapshot(snap([{ id: "a", badge: "running" }], "a")); // start -> speaking
+    v.onSnapshot(snap([{ id: "a", badge: "done", state: "idle" }], "a")); // arrives mid-speech: deferred, NOT consumed
+    release();
+    await v._inflight;             // start finishes, speaking clears
+    v.onSnapshot(snap([{ id: "a", badge: "done", state: "idle" }], "a")); // re-detected now
+    await v._inflight;
+    assert.strictEqual(plays.length, 2); // start + done both played
   });
 
   it("logs and survives a TTS failure without throwing", async () => {

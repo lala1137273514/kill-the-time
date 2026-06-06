@@ -1212,9 +1212,16 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
     glassboxVoice = new GlassboxVoice({
       synth: (text) => glassboxTts.synthesize(text),
       play: (buf) => {
+        // Honor mute / Do-Not-Disturb — playSound() gates these for chimes, and
+        // narration (a louder, more frequent voice) must respect them too.
+        if (soundMuted || doNotDisturb) return;
         const file = pathMod.join(osMod.tmpdir(), `clawd-glassbox-${process.pid}-${voiceSeq++}.wav`);
         fsMod.writeFileSync(file, buf);
-        sendToRenderer("play-sound", { url: pathToFileURL(file).href, volume: soundVolume });
+        // Dedicated channel: the renderer plays this once WITHOUT caching it —
+        // per-line unique URLs would bloat the chime cache forever. Delete the
+        // temp file after a window comfortably longer than a short line.
+        sendToRenderer("glassbox-play", { url: pathToFileURL(file).href, volume: soundVolume });
+        setTimeout(() => { try { fsMod.unlinkSync(file); } catch {} }, 20000);
       },
       now: () => Date.now(),
       log: (msg) => sessionLog(msg),
@@ -3161,8 +3168,10 @@ if (!gotTheLock) {
       // when the feature is on: grant "media", keep default-deny for the rest.
       try {
         const { session } = require("electron");
-        session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-          callback(permission === "media");
+        session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
+          // Grant the microphone only to the pet render window; deny everything
+          // else so enabling voice doesn't loosen permissions app-wide.
+          callback(permission === "media" && !!win && wc === win.webContents);
         });
       } catch (err) {
         sessionLog(`glassbox-voice: permission handler failed: ${err && err.message}`);

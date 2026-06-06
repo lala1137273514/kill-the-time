@@ -82,6 +82,7 @@ describe("glassbox-asr transcribe", () => {
         assert.strictEqual(pth.replace(/\\/g, "/"), "/rec/out/clip.json");
         return '{"text":"帮我对比这三家公司"}';
       },
+      unlinkFn: () => {},
     });
     child.emit("close", 0);
     const text = await p;

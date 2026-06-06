@@ -45,10 +45,10 @@ describe("glassbox-narration", () => {
     assert.strictEqual(out.milestone, MILESTONES.DONE);
   });
 
-  it("speaks a stuck line on entering error", () => {
+  it("speaks a stuck line when the badge goes interrupted", () => {
     const c = new NarrationController({ minIntervalMs: 0 });
     c.next(sess({ badge: "running", state: "working" }), 0);
-    const out = c.next(sess({ badge: "running", state: "error" }), 100);
+    const out = c.next(sess({ badge: "interrupted" }), 100);
     assert.ok(out);
     assert.strictEqual(out.milestone, MILESTONES.STUCK);
   });
@@ -60,12 +60,21 @@ describe("glassbox-narration", () => {
     assert.strictEqual(again, null);
   });
 
+  it("fires START once per session, not on every idle->running turn", () => {
+    const c = new NarrationController({ minIntervalMs: 0 });
+    assert.strictEqual(c.next(sess({ badge: "running" }), 0).milestone, MILESTONES.START);
+    c.next(sess({ badge: "done", state: "idle" }), 1); // turn ends
+    c.next(sess({ badge: "idle" }), 2);                 // idle between turns
+    const again = c.next(sess({ badge: "running" }), 3); // next turn
+    assert.strictEqual(again, null);                     // no repeat START
+  });
+
   it("rotates phrasing across repeated milestones", () => {
     const c = new NarrationController({ minIntervalMs: 0 });
     const seen = new Set();
     for (let i = 0; i < 3; i++) {
-      c.next(sess({ id: "s1", badge: "idle" }), i * 10); // reset to idle
-      const out = c.next(sess({ id: "s1", badge: "running" }), i * 10 + 1);
+      // distinct sessions: START fires once per session, so use 3 ids
+      const out = c.next(sess({ id: "s" + i, badge: "running" }), i * 10);
       if (out) seen.add(out.text);
     }
     assert.ok(seen.size >= 2, "expected varied start phrasing");

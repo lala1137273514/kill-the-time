@@ -1400,41 +1400,55 @@ if (!currentDisplayedSvg && _idleFollowSvg) {
   swapToFile(_idleFollowSvg, "idle");
 }
 
-// --- Glass-box voice push-to-talk (demo/kill-boring-loading) ---
-// Toggle from main starts/stops a mic recording; the clip is handed back to
-// main for local-whisper transcription. Inert unless the feature wired the
-// toggle channel (CLAWD_GLASSBOX_VOICE=1), so default builds are untouched.
-(function glassboxRecorder() {
-  if (!window.electronAPI || typeof window.electronAPI.onGlassboxRecordToggle !== "function") return;
-  let recorder = null;
-  let stream = null;
-  let chunks = [];
+// --- Glass-box voice (demo/kill-boring-loading) ---
+// Inert unless the feature wired these channels (CLAWD_GLASSBOX_VOICE=1).
+(function glassboxVoice() {
+  if (!window.electronAPI) return;
 
-  async function start() {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    chunks = [];
-    recorder = new MediaRecorder(stream);
-    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-    recorder.onstop = async () => {
+  // Narration playback: one-shot, NOT cached (per-line unique URLs would bloat
+  // the chime cache). Separate from onPlaySound on purpose.
+  if (typeof window.electronAPI.onGlassboxPlay === "function") {
+    window.electronAPI.onGlassboxPlay((p) => {
       try {
-        const blob = new Blob(chunks, { type: recorder ? recorder.mimeType : "audio/webm" });
-        const buf = await blob.arrayBuffer();
-        window.electronAPI.sendGlassboxClip(buf, blob.type || "audio/webm");
+        const audio = new Audio(p && p.url);
+        if (p && typeof p.volume === "number") audio.volume = p.volume;
+        audio.play().catch(() => {});
       } catch (err) {
-        console.warn("glassbox-voice: clip send failed:", err);
-      } finally {
-        if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
-        recorder = null;
+        console.warn("glassbox-voice: play failed:", err);
       }
-    };
-    recorder.start();
+    });
   }
 
-  window.electronAPI.onGlassboxRecordToggle(() => {
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
-    } else {
-      start().catch((err) => console.warn("glassbox-voice: mic start failed:", err));
+  // Push-to-talk: toggle from main starts/stops a mic recording; the clip goes
+  // back to main for local-whisper transcription. Each recording owns its own
+  // stream/recorder/chunks via closure, so a rapid stop->start can't let a stale
+  // onstop tear down the new capture or leak the new stream.
+  if (typeof window.electronAPI.onGlassboxRecordToggle === "function") {
+    let active = null; // { recorder, stream } currently capturing, or null
+    async function start() {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks = [];
+      const recorder = new MediaRecorder(stream);
+      const session = { recorder, stream };
+      active = session;
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+          const buf = await blob.arrayBuffer();
+          window.electronAPI.sendGlassboxClip(buf, blob.type || "audio/webm");
+        } catch (err) {
+          console.warn("glassbox-voice: clip send failed:", err);
+        } finally {
+          stream.getTracks().forEach((t) => t.stop()); // only THIS recording's stream
+          if (active === session) active = null;
+        }
+      };
+      recorder.start();
     }
-  });
+    window.electronAPI.onGlassboxRecordToggle(() => {
+      if (active && active.recorder.state !== "inactive") active.recorder.stop();
+      else start().catch((err) => console.warn("glassbox-voice: mic start failed:", err));
+    });
+  }
 })();

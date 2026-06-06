@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // and the recorded clip back to main for local-whisper transcription.
   onGlassboxRecordToggle: (cb) => ipcRenderer.on("glassbox-record-toggle", () => cb()),
   sendGlassboxClip: (buffer, mime) => ipcRenderer.send("glassbox-voice-clip", { buffer, mime }),
+  // Dedicated narration playback (uncached, one-shot) — separate from play-sound.
+  onGlassboxPlay: (cb) => ipcRenderer.on("glassbox-play", (_, payload) => cb(payload)),
   // Render window → main (cursor polling control during reactions)
   pauseCursorPolling: () => ipcRenderer.send("pause-cursor-polling"),
   resumeFromReaction: () => ipcRenderer.send("resume-from-reaction"),

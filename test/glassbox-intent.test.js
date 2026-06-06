@@ -16,6 +16,21 @@ describe("glassbox-intent routeVoiceCommand", () => {
     assert.strictEqual(routeVoiceCommand("不可以", { permissionPending: true }).action, "deny");
   });
 
+  it("treats negated approval (不批准/别批准) as deny, not approve", () => {
+    assert.strictEqual(routeVoiceCommand("不批准", { permissionPending: true }).action, "deny");
+    assert.strictEqual(routeVoiceCommand("别批准", { permissionPending: true }).action, "deny");
+    assert.strictEqual(routeVoiceCommand("不同意", { permissionPending: true }).action, "deny");
+  });
+
+  it("does NOT approve on weak fillers (好的/可以/行) — only strong words approve", () => {
+    // Safety: whisper hallucinates fillers from noise; they must not auto-approve.
+    for (const filler of ["好的", "可以", "行", "嗯"]) {
+      assert.notStrictEqual(routeVoiceCommand(filler, { permissionPending: true }).action, "approve");
+    }
+    assert.strictEqual(routeVoiceCommand("批准", { permissionPending: true }).action, "approve");
+    assert.strictEqual(routeVoiceCommand("同意", { permissionPending: true }).action, "approve");
+  });
+
   it("treats other speech as the answer when a clarification is pending", () => {
     const r = routeVoiceCommand("把估值也算进去", { clarificationPending: true });
     assert.strictEqual(r.action, "answer");
@@ -40,7 +55,7 @@ describe("glassbox-intent routeVoiceCommand", () => {
 
   it("tolerates punctuation and spacing around the keyword", () => {
     assert.strictEqual(routeVoiceCommand("批 准。", { permissionPending: true }).action, "approve");
-    assert.strictEqual(routeVoiceCommand("好的！", { permissionPending: true }).action, "approve");
+    assert.strictEqual(routeVoiceCommand("同意！", { permissionPending: true }).action, "approve");
   });
 
   it("permission precedence beats clarification for approve/deny words", () => {

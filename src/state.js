@@ -1181,6 +1181,10 @@ function updateSession(sessionId, state, event, opts = {}) {
     } else if (existing && existing.state === "juggling" && state === "working") {
       existing.updatedAt = Date.now();
       existing.displayHint = pickDisplayHint("juggling", existing, displayHint);
+      // Keep the glass-box telemetry live during the fan-out hold (this branch
+      // doesn't spread `base`, so refresh the two fields the HUD reads).
+      existing.currentTool = srcCurrentTool;
+      existing.subagentCount = srcSubagentCount;
       debugSession(`juggling-hold ${describeSession(sessionId, existing)} event=${event || "-"}`);
     } else {
       const dh = pickDisplayHint(state, existing, displayHint);

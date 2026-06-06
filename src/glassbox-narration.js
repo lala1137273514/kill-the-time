@@ -70,23 +70,28 @@ class NarrationController {
   _detect(session) {
     const id = session && session.id;
     if (!id) return null;
-    const prev = this.prev.get(id) || { badge: "idle", state: "idle", subagentCount: 0 };
+    const prev = this.prev.get(id) || { badge: "idle", state: "idle", subagentCount: 0, started: false };
     const curBadge = badgeOf(session);
     const curState = stateOf(session);
     const curSubs = subagentsOf(session);
 
     let result = null;
+    let started = prev.started;
     if (curBadge === "done" && prev.badge !== "done") {
       result = { milestone: MILESTONES.DONE };
-    } else if (curState === "error" && prev.state !== "error") {
+    } else if (curBadge === "interrupted" && prev.badge !== "interrupted") {
+      // Failures surface as badge "interrupted" — state "error" is a one-shot
+      // that updateSession stores as idle, so it never reaches the snapshot.
       result = { milestone: MILESTONES.STUCK };
     } else if (curSubs >= 2 && curSubs > prev.subagentCount) {
       result = { milestone: MILESTONES.FANOUT, count: curSubs };
-    } else if (curBadge === "running" && prev.badge !== "running") {
+    } else if (curBadge === "running" && !prev.started) {
+      // START fires once per session, not on every idle->running turn flip.
       result = { milestone: MILESTONES.START };
+      started = true;
     }
 
-    this.prev.set(id, { badge: curBadge, state: curState, subagentCount: curSubs });
+    this.prev.set(id, { badge: curBadge, state: curState, subagentCount: curSubs, started });
     return result;
   }
 
@@ -105,10 +110,12 @@ class NarrationController {
     const hit = this._detect(session);
     if (!hit) return null;
 
-    // "done" is the payoff — it always speaks. Everything else respects the
-    // floor so the wait doesn't turn into a monologue.
-    const bypass = hit.milestone === MILESTONES.DONE;
-    if (!bypass && now - this.lastSpokeAt < this.minIntervalMs) return null;
+    // Only FANOUT can rapid-fire (count 2->3->4 in quick succession), so it is
+    // the only milestone the floor throttles. START is once-per-session, STUCK
+    // and DONE are once-per-run — they always speak and are never dropped.
+    if (hit.milestone === MILESTONES.FANOUT && now - this.lastSpokeAt < this.minIntervalMs) {
+      return null;
+    }
 
     this.lastSpokeAt = now;
     return { milestone: hit.milestone, text: this._render(hit.milestone, hit.count) };

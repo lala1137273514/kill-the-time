@@ -40,6 +40,11 @@ class GlassboxVoice {
     try {
       const sessions = Array.isArray(snapshot && snapshot.sessions) ? snapshot.sessions : [];
       this.controller.prune(sessions.map((s) => s && s.id).filter(Boolean));
+      // While a line is mid-flight, don't run the controller — that would
+      // CONSUME the transition (advance prev-state/throttle) and silently drop
+      // the milestone, including the "done" payoff. Skipping leaves it pending
+      // so the next snapshot re-detects it once we're free.
+      if (this.speaking) return;
       const primary = pickPrimary(snapshot);
       if (!primary) return;
       const line = this.controller.next(primary, this.now());

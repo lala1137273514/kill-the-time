@@ -7,10 +7,13 @@
 // off a new task. Pure + context-aware: the caller passes what's currently
 // pending; ASR transport and the actual /permission call live elsewhere.
 
-// Word lists kept short and unambiguous. Matched against the utterance with
-// punctuation/whitespace stripped so "批准。" and "批 准" both hit.
-const APPROVE_RE = /(批准|通过|同意|确认|允许|没问题|准了|可以|好的|行|继续|ok|okay|yes|approve)/i;
-const DENY_RE = /(拒绝|驳回|不行|不可以|不要|别动|取消|算了|停一下|停下|no|deny|cancel)/i;
+// Approving a tool the user didn't mean to is the dangerous direction (it runs
+// real commands), so APPROVE only fires on strong, unambiguous words — NOT on
+// conversational fillers like 好的/行/可以/ok, which whisper readily hallucinates
+// from near-silence. DENY is checked first and includes the negated forms
+// (不批准/不同意…) so "不批准" denies instead of matching the embedded "批准".
+const DENY_RE = /(不批准|别批准|不同意|不通过|不允许|拒绝|驳回|否决|不行|不可以|不要|别动|取消|算了|停一下|停下|no|deny|cancel)/i;
+const APPROVE_RE = /(批准|通过|同意|确认|授权|允许|approve|allow)/i;
 
 function normalize(text) {
   return String(text || "")
