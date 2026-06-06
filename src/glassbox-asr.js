@@ -30,11 +30,10 @@ function buildArgs(wavPath, outDir, opts = {}) {
   if (typeof opts.buildArgs === "function") return opts.buildArgs(wavPath, outDir, opts);
   return [
     wavPath,
-    "--model", opts.model || "small",
+    "--model", opts.model || process.env.CLAWD_WHISPER_MODEL || "small",
     "--language", opts.language || "zh",
     "--output_format", "json",
     "--output_dir", outDir,
-    "--print_progress", "False",
   ];
 }
 

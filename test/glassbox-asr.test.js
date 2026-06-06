@@ -50,6 +50,23 @@ describe("glassbox-asr helpers", () => {
     assert.ok(args.includes("--output_format") && args.includes("json"));
     assert.ok(args.includes("--language") && args.includes("zh"));
     assert.ok(args.includes("--output_dir") && args.includes("/tmp/out"));
+    // faster-whisper-xxl / whisper-ctranslate2 reject --print_progress (exit 2),
+    // so it must NOT be in the default args.
+    assert.ok(!args.includes("--print_progress"));
+  });
+
+  it("buildArgs model falls back to CLAWD_WHISPER_MODEL env, opts still wins", () => {
+    const saved = process.env.CLAWD_WHISPER_MODEL;
+    process.env.CLAWD_WHISPER_MODEL = "base";
+    try {
+      const envArgs = buildArgs("/a.wav", "/o", {});
+      assert.strictEqual(envArgs[envArgs.indexOf("--model") + 1], "base");
+      const optArgs = buildArgs("/a.wav", "/o", { model: "small" });
+      assert.strictEqual(optArgs[optArgs.indexOf("--model") + 1], "small");
+    } finally {
+      if (saved === undefined) delete process.env.CLAWD_WHISPER_MODEL;
+      else process.env.CLAWD_WHISPER_MODEL = saved;
+    }
   });
 
   it("buildArgs honors a custom override", () => {
