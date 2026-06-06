@@ -1260,6 +1260,15 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
         try { clipboard.writeText(route.text || ""); } catch {}
         sessionLog(`glassbox-voice: staged ${route.action} to clipboard: ${(route.text || "").slice(0, 40)}`);
       },
+      onTranscript: (text) => {
+        // Echo what we heard so the user can catch mis-hears (e.g. Claude->CLO).
+        sendToRenderer("glassbox-heard", { text: String(text || "") });
+      },
+      onError: () => {
+        // Don't fail silently — say it and show it.
+        sendToRenderer("glassbox-heard", { error: "没听清" });
+        try { glassboxVoice && glassboxVoice.speak("没听清，再说一次"); } catch {}
+      },
       log: (msg) => sessionLog(msg),
     });
 
@@ -3281,13 +3290,31 @@ if (!gotTheLock) {
       } catch (err) {
         sessionLog(`glassbox-voice: permission handler failed: ${err && err.message}`);
       }
-      const accel = process.env.CLAWD_GLASSBOX_HOTKEY || "CommandOrControl+Alt+Space";
+      // Default Ctrl+Space (overridable). NOTE: on Windows this collides with
+      // the IME language toggle on some setups — if registration fails, set
+      // CLAWD_GLASSBOX_HOTKEY to something else.
+      const accel = process.env.CLAWD_GLASSBOX_HOTKEY || "CommandOrControl+Space";
       try {
         const ok = globalShortcut.register(accel, () => sendToRenderer("glassbox-record-toggle"));
-        sessionLog(`glassbox-voice: push-to-talk hotkey ${accel} ${ok ? "registered" : "FAILED (conflict?)"}`);
+        sessionLog(`glassbox-voice: push-to-talk hotkey ${accel} ${ok ? "registered" : "FAILED (conflict? IME?)"}`);
       } catch (err) {
         sessionLog(`glassbox-voice: hotkey register threw: ${err && err.message}`);
       }
+      // While the mic is live, register Esc as a cancel hotkey so a mis-trigger
+      // can be aborted without transcribing. Unregister when listening stops so
+      // Esc behaves normally the rest of the time.
+      ipcMain.on("glassbox-listen-state", (_evt, payload) => {
+        const active = !!(payload && payload.active);
+        try {
+          if (active) {
+            globalShortcut.register("Escape", () => sendToRenderer("glassbox-record-cancel"));
+          } else {
+            globalShortcut.unregister("Escape");
+          }
+        } catch (err) {
+          sessionLog(`glassbox-voice: esc hotkey toggle failed: ${err && err.message}`);
+        }
+      });
     }
     if (shouldOpenSettingsWindowFromArgv(process.argv)) {
       settingsWindowRuntime.open();

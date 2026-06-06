@@ -6,12 +6,14 @@ const assert = require("node:assert");
 const { GlassboxListener } = require("../src/glassbox-listen");
 
 function deps(over = {}) {
-  const calls = { resolve: [], text: [], log: [] };
+  const calls = { resolve: [], text: [], log: [], transcripts: [], errors: [] };
   const base = {
     transcribe: async () => "",
     resolvePermission: (b) => calls.resolve.push(b),
     getPending: () => ({}),
     onText: (r) => calls.text.push(r),
+    onTranscript: (t) => calls.transcripts.push(t),
+    onError: (e) => calls.errors.push(e),
     log: (m) => calls.log.push(m),
   };
   return { d: { ...base, ...over }, calls };
@@ -72,6 +74,20 @@ describe("glassbox-listen GlassboxListener", () => {
     assert.strictEqual(r.action, "error");
     assert.match(r.error, /whisper down/);
     assert.ok(calls.log.some((m) => /transcribe failed/.test(m)));
+  });
+
+  it("echoes the recognized transcript via onTranscript before routing", async () => {
+    const { d, calls } = deps({ transcribe: async () => "帮我对比这三家公司" });
+    await new GlassboxListener(d).onUtterance("/tmp/a.wav");
+    assert.deepStrictEqual(calls.transcripts, ["帮我对比这三家公司"]);
+  });
+
+  it("reports a transcription failure via onError", async () => {
+    const { d, calls } = deps({ transcribe: async () => { throw new Error("whisper down"); } });
+    await new GlassboxListener(d).onUtterance("/tmp/a.wav");
+    assert.strictEqual(calls.errors.length, 1);
+    assert.match(calls.errors[0].message, /whisper down/);
+    assert.strictEqual(calls.transcripts.length, 0);
   });
 
   it("validates required deps", () => {

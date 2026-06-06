@@ -1419,36 +1419,160 @@ if (!currentDisplayedSvg && _idleFollowSvg) {
     });
   }
 
-  // Push-to-talk: toggle from main starts/stops a mic recording; the clip goes
-  // back to main for local-whisper transcription. Each recording owns its own
-  // stream/recorder/chunks via closure, so a rapid stop->start can't let a stale
-  // onstop tear down the new capture or leak the new stream.
+  // Push-to-talk with VAD auto-stop: one Ctrl+Space starts listening; the user
+  // just talks and a short silence ends it (no second keypress). Esc cancels.
+  // A small top-center pill shows 在听 / 在想 / 听到, so the wait is never opaque.
   if (typeof window.electronAPI.onGlassboxRecordToggle === "function") {
-    let active = null; // { recorder, stream } currently capturing, or null
+    // ── status pill ────────────────────────────────────────────────────────
+    let pill = null, pillTimer = null;
+    function ensurePillStyle() {
+      if (document.getElementById("glassbox-pill-style")) return;
+      const host = document.head || document.documentElement;
+      if (!host) return;
+      const st = document.createElement("style");
+      st.id = "glassbox-pill-style";
+      st.textContent = "@keyframes glassboxPulse{0%,100%{opacity:1}50%{opacity:0.55}}";
+      host.appendChild(st);
+    }
+    function ensurePill() {
+      if (pill) return pill;
+      ensurePillStyle();
+      pill = document.createElement("div");
+      pill.id = "glassbox-pill";
+      Object.assign(pill.style, {
+        position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)",
+        zIndex: "2147483647", maxWidth: "78vw", padding: "6px 14px",
+        borderRadius: "16px", background: "rgba(20,20,22,0.82)", color: "#fff",
+        font: "500 13px/1.4 -apple-system,'Segoe UI',sans-serif", letterSpacing: "0.2px",
+        boxShadow: "0 4px 18px rgba(0,0,0,0.28)", backdropFilter: "blur(6px)",
+        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        opacity: "0", transition: "opacity 160ms ease", pointerEvents: "none",
+      });
+      const host = document.body || document.documentElement;
+      if (host) host.appendChild(pill);
+      return pill;
+    }
+    function showPill(text, { pulse = false, hideAfter = 0 } = {}) {
+      const el = ensurePill();
+      if (pillTimer) { clearTimeout(pillTimer); pillTimer = null; }
+      el.textContent = text;
+      el.style.opacity = "1";
+      el.style.animation = pulse ? "glassboxPulse 1.1s ease-in-out infinite" : "none";
+      if (hideAfter > 0) pillTimer = setTimeout(hidePill, hideAfter);
+    }
+    function hidePill() {
+      if (!pill) return;
+      if (pillTimer) { clearTimeout(pillTimer); pillTimer = null; }
+      pill.style.opacity = "0";
+      pill.style.animation = "none";
+    }
+    // ── capture + VAD ──────────────────────────────────────────────────────
+    const SILENCE_MS = 1200;   // trailing silence that ends an utterance
+    const NOSPEECH_MS = 6000;  // give up if nothing is ever said
+    const MAX_MS = 20000;      // hard cap
+    const RMS_THRESHOLD = 0.015;
+    const TICK_MS = 50;
+    let active = null; // current capture session or null
+
+    function teardownAudio(s) {
+      try { if (s.tickTimer) clearInterval(s.tickTimer); } catch {}
+      try { if (s.analyserSrc) s.analyserSrc.disconnect(); } catch {}
+      try { if (s.audioCtx && s.audioCtx.state !== "closed") s.audioCtx.close(); } catch {}
+    }
+
     async function start() {
+      if (active) return;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const chunks = [];
       const recorder = new MediaRecorder(stream);
-      const session = { recorder, stream };
+      const session = { recorder, stream, sendOnStop: true, audioCtx: null, analyserSrc: null, tickTimer: null };
       active = session;
+
       recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       recorder.onstop = async () => {
+        teardownAudio(session);
         try {
-          const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-          const buf = await blob.arrayBuffer();
-          window.electronAPI.sendGlassboxClip(buf, blob.type || "audio/webm");
+          if (session.sendOnStop) {
+            const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+            const buf = await blob.arrayBuffer();
+            window.electronAPI.sendGlassboxClip(buf, blob.type || "audio/webm");
+            showPill("💭 在想…", { pulse: true });
+          }
         } catch (err) {
           console.warn("glassbox-voice: clip send failed:", err);
         } finally {
-          stream.getTracks().forEach((t) => t.stop()); // only THIS recording's stream
+          stream.getTracks().forEach((t) => t.stop());
           if (active === session) active = null;
+          try { window.electronAPI.sendGlassboxListenState(false); } catch {}
         }
       };
       recorder.start();
+      try { window.electronAPI.sendGlassboxListenState(true); } catch {}
+      showPill("🎙 在听…", { pulse: true });
+
+      // VAD loop
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        session.audioCtx = new AC();
+        const srcNode = session.audioCtx.createMediaStreamSource(stream);
+        const analyser = session.audioCtx.createAnalyser();
+        analyser.fftSize = 1024;
+        srcNode.connect(analyser);
+        session.analyserSrc = srcNode;
+        const buf = new Float32Array(analyser.fftSize);
+        const startTs = Date.now();
+        let speechStarted = false;
+        let lastVoiceTs = startTs;
+        session.tickTimer = setInterval(() => {
+          if (active !== session || recorder.state === "inactive") return;
+          analyser.getFloatTimeDomainData(buf);
+          let sum = 0;
+          for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+          const rms = Math.sqrt(sum / buf.length);
+          const now = Date.now();
+          if (rms > RMS_THRESHOLD) { speechStarted = true; lastVoiceTs = now; }
+          if (now - startTs > MAX_MS) return stop(true);
+          if (!speechStarted && now - startTs > NOSPEECH_MS) {
+            cancel("没说话，取消了");
+            return;
+          }
+          if (speechStarted && now - lastVoiceTs > SILENCE_MS) return stop(true);
+        }, TICK_MS);
+      } catch (err) {
+        // No VAD available — fall back to keypress/Esc control only.
+        console.warn("glassbox-voice: VAD unavailable:", err);
+      }
     }
+
+    function stop(send) {
+      if (!active) return;
+      active.sendOnStop = !!send;
+      if (active.recorder.state !== "inactive") active.recorder.stop();
+    }
+    function cancel(msg) {
+      if (!active) { hidePill(); return; }
+      active.sendOnStop = false;
+      if (active.recorder.state !== "inactive") active.recorder.stop();
+      showPill(msg || "已取消", { hideAfter: 1400 });
+    }
+
     window.electronAPI.onGlassboxRecordToggle(() => {
-      if (active && active.recorder.state !== "inactive") active.recorder.stop();
-      else start().catch((err) => console.warn("glassbox-voice: mic start failed:", err));
+      if (active && active.recorder.state !== "inactive") stop(true); // manual stop
+      else start().catch((err) => {
+        console.warn("glassbox-voice: mic start failed:", err);
+        showPill("麦克风打不开", { hideAfter: 2000 });
+      });
     });
+    if (typeof window.electronAPI.onGlassboxRecordCancel === "function") {
+      window.electronAPI.onGlassboxRecordCancel(() => cancel("已取消"));
+    }
+    if (typeof window.electronAPI.onGlassboxHeard === "function") {
+      window.electronAPI.onGlassboxHeard((p) => {
+        if (p && p.error) { showPill("🤔 " + p.error, { hideAfter: 2200 }); return; }
+        const text = (p && p.text || "").trim();
+        if (text) showPill("听到：" + text, { hideAfter: 3500 });
+        else hidePill();
+      });
+    }
   }
 })();

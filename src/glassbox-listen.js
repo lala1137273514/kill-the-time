@@ -24,6 +24,8 @@ class GlassboxListener {
     this.resolvePermission = deps.resolvePermission; // (behavior: "allow"|"deny") => void
     this.getPending = typeof deps.getPending === "function" ? deps.getPending : () => ({});
     this.onText = typeof deps.onText === "function" ? deps.onText : () => {};
+    this.onTranscript = typeof deps.onTranscript === "function" ? deps.onTranscript : () => {};
+    this.onError = typeof deps.onError === "function" ? deps.onError : () => {};
     this.log = typeof deps.log === "function" ? deps.log : () => {};
   }
 
@@ -34,8 +36,12 @@ class GlassboxListener {
       text = await this.transcribe(wavPath);
     } catch (err) {
       this.log(`glassbox-listen: transcribe failed: ${err && err.message}`);
+      try { this.onError(err); } catch {}
       return { action: "error", error: err && err.message };
     }
+
+    // Echo what we heard (UI bubble) so the user can catch mis-hears.
+    try { this.onTranscript(text); } catch {}
 
     const pending = this.getPending() || {};
     const route = routeVoiceCommand(text, pending);

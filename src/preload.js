@@ -32,7 +32,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Glass-box voice (demo/kill-boring-loading): push-to-talk toggle from main,
   // and the recorded clip back to main for local-whisper transcription.
   onGlassboxRecordToggle: (cb) => ipcRenderer.on("glassbox-record-toggle", () => cb()),
+  onGlassboxRecordCancel: (cb) => ipcRenderer.on("glassbox-record-cancel", () => cb()),
   sendGlassboxClip: (buffer, mime) => ipcRenderer.send("glassbox-voice-clip", { buffer, mime }),
+  // Listening lifecycle: renderer tells main when the mic is live so main can
+  // register/unregister the Esc cancel hotkey; main echoes the transcript back.
+  sendGlassboxListenState: (active) => ipcRenderer.send("glassbox-listen-state", { active: !!active }),
+  onGlassboxHeard: (cb) => ipcRenderer.on("glassbox-heard", (_, payload) => cb(payload)),
   // Dedicated narration playback (uncached, one-shot) — separate from play-sound.
   onGlassboxPlay: (cb) => ipcRenderer.on("glassbox-play", (_, payload) => cb(payload)),
   // Render window → main (cursor polling control during reactions)
