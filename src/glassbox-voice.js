@@ -55,6 +55,15 @@ class GlassboxVoice {
     }
   }
 
+  // Speak an arbitrary line on demand (e.g. a dispatch receipt), outside the
+  // snapshot/milestone path. Returns the in-flight promise so callers can await.
+  speak(text) {
+    const t = String(text || "").trim();
+    if (!t) return Promise.resolve();
+    this._speak(t);
+    return this._inflight || Promise.resolve();
+  }
+
   _speak(text) {
     if (this.speaking) return;
     this.speaking = true;

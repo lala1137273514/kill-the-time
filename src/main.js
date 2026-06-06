@@ -233,6 +233,9 @@ let telegramDirectSend = null;
 let glassboxVoice = null;
 // Glass-box push-to-talk listener (same opt-in flag). Null unless enabled.
 let glassboxListen = null;
+// Glass-box Phase 2 remote-control flow (orchestrate -> capture -> dispatch).
+// Same opt-in flag; null unless enabled.
+let glassboxRemote = null;
 let suppressTelegramApprovalSidecarSync = 0;
 let hardwareBuddyAdapter = null;
 let hardwareBuddyStatus = null;
@@ -1245,13 +1248,114 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
           behavior === "deny" ? "Denied via voice" : undefined);
       },
       onText: (route) => {
-        // No stdin channel into the agent — stage the text on the clipboard so
-        // the user can paste it. Honest, not a fake injection.
+        // Phase 2: a "task" utterance (no pending permission/clarification) now
+        // drives the real remote-control flow — orchestrate -> capture ->
+        // dispatch a host-agent run. An "answer" still can't be injected into a
+        // running TUI, so it stays on the clipboard (honest, not faked).
+        if (route.action === "task" && glassboxRemote) {
+          Promise.resolve(glassboxRemote.handle(route.text))
+            .catch((err) => sessionLog(`glassbox-remote: handle failed: ${err && err.message}`));
+          return;
+        }
         try { clipboard.writeText(route.text || ""); } catch {}
         sessionLog(`glassbox-voice: staged ${route.action} to clipboard: ${(route.text || "").slice(0, 40)}`);
       },
       log: (msg) => sessionLog(msg),
     });
+
+    // Phase 2 remote-control flow (REMOTE-CONTROL-SPEC). The light model (qwen
+    // via Bailian, reuse BAILIAN_API_KEY) decides dispatch/chat; capture grabs
+    // the foreground window + an on-demand screenshot; dispatch spawns a fresh
+    // `claude -p`/`-r` or `codex exec`. All side effects wired here; the flow
+    // logic lives (and is unit-tested) in glassbox-remote.js.
+    const glassboxOrchestrator = require("./glassbox-orchestrator");
+    const glassboxCapture = require("./glassbox-capture");
+    const glassboxDispatch = require("./glassbox-dispatch");
+
+    const resolveForegroundWindow = async () => {
+      const win = await glassboxCapture.captureForegroundWindow({});
+      const snap = (_state && typeof _state.buildSessionSnapshot === "function")
+        ? _state.buildSessionSnapshot() : { sessions: [] };
+      const session = glassboxCapture.matchSession(win, snap.sessions || []);
+      return {
+        hwnd: win.hwnd,
+        pid: win.pid,
+        title: win.title,
+        sessionId: (session && (session.id ?? session.sessionId)) || null,
+        cwd: (session && session.cwd) || null,
+        agentId: (session && session.agentId) || null,
+      };
+    };
+
+    const captureScreenshot = async (window) => {
+      const { desktopCapturer } = require("electron");
+      const primary = screen.getPrimaryDisplay();
+      const sf = primary.scaleFactor || 1;
+      const thumbnailSize = {
+        width: Math.round(primary.size.width * sf),
+        height: Math.round(primary.size.height * sf),
+      };
+      const sources = await desktopCapturer.getSources({ types: ["window", "screen"], thumbnailSize });
+      // Prefer the matching foreground window by title; fall back to full screen.
+      let src = null;
+      if (window && window.title) {
+        src = sources.find((s) => s.name && window.title && s.name.includes(window.title));
+      }
+      if (!src) src = sources.find((s) => String(s.id).startsWith("screen:")) || sources[0];
+      if (!src || !src.thumbnail) throw new Error("desktopCapturer: no source");
+      const osMod2 = require("os");
+      const pathMod2 = require("path");
+      const fsMod2 = require("fs");
+      const file = pathMod2.join(osMod2.tmpdir(), `clawd-shot-${process.pid}-${Date.now()}.png`);
+      fsMod2.writeFileSync(file, src.thumbnail.toPNG());
+      return file;
+    };
+
+    const { GlassboxRemote } = require("./glassbox-remote");
+    glassboxRemote = new GlassboxRemote({
+      orchestrate: (text, octx) => glassboxOrchestrator.orchestrate(text, octx, {}),
+      getForegroundWindow: resolveForegroundWindow,
+      takeScreenshot: captureScreenshot,
+      dispatchFn: (plan) => glassboxDispatch.dispatch(plan, {}),
+      getSessionIdle: (sid) => {
+        const snap = (_state && typeof _state.buildSessionSnapshot === "function")
+          ? _state.buildSessionSnapshot() : { sessions: [] };
+        const s = (snap.sessions || []).find((x) => x && x.id === sid);
+        return !!(s && s.state === "idle");
+      },
+      resolvePermission: (behavior) => {
+        if (typeof _perm.hotkeyResolve !== "function") return;
+        _perm.hotkeyResolve(behavior === "deny" ? "deny" : "allow",
+          behavior === "deny" ? "Denied via voice" : undefined);
+      },
+      onAnswer: (route) => {
+        try { clipboard.writeText(route.text || ""); } catch {}
+        sessionLog(`glassbox-remote: staged answer to clipboard: ${(route.text || "").slice(0, 40)}`);
+      },
+      speak: (text) => { try { glassboxVoice && glassboxVoice.speak(text); } catch {} },
+      confirmWrite: async (decision) => {
+        // Spec §4-4: write/delete/network needs a yes first. A modal dialog is
+        // the honest gate here (voice confirm is a later enhancement).
+        try {
+          const { response } = await dialog.showMessageBox({
+            type: "question",
+            buttons: ["取消", "确认"],
+            defaultId: 1,
+            cancelId: 0,
+            message: "要让 agent 执行写 / 删 / 联网类操作吗？",
+            detail: decision.refinedPrompt || "",
+          });
+          return response === 1;
+        } catch { return false; }
+      },
+      getPending: () => ({
+        permissionPending: typeof _perm.getActionablePermissions === "function"
+          && _perm.getActionablePermissions().length > 0,
+      }),
+      defaultCwd: null, // don't guess (spec §6); ask when no window/session cwd
+      log: (msg) => sessionLog(msg),
+    });
+    sessionLog("glassbox-remote: Phase 2 remote control enabled");
   } catch (err) {
     sessionLog(`glassbox-voice: init failed: ${err && err.message}`);
   }

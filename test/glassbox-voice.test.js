@@ -100,4 +100,20 @@ describe("glassbox-voice GlassboxVoice", () => {
     assert.throws(() => new GlassboxVoice({ play: () => {} }), /synth/);
     assert.throws(() => new GlassboxVoice({ synth: async () => {} }), /play/);
   });
+
+  it("speak() synthesizes and plays an arbitrary line (dispatch receipt)", async () => {
+    const synthed = [];
+    const { deps: d, plays } = deps({ synth: async (t) => { synthed.push(t); return Buffer.from(t); } });
+    const v = new GlassboxVoice(d);
+    await v.speak("好的，已经让 Claude 处理了");
+    assert.deepStrictEqual(synthed, ["好的，已经让 Claude 处理了"]);
+    assert.strictEqual(plays.length, 1);
+  });
+
+  it("speak() ignores empty text", async () => {
+    const { deps: d, plays } = deps();
+    const v = new GlassboxVoice(d);
+    await v.speak("   ");
+    assert.strictEqual(plays.length, 0);
+  });
 });
