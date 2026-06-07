@@ -261,9 +261,49 @@ function toggleGlassboxInput() {
   glassboxInputWin = w;
   w.loadFile(pathMod.join(__dirname, "glassbox-input.html"));
   w.once("ready-to-show", () => { try { w.center(); w.show(); w.focus(); } catch {} });
-  // Spotlight-style: clicking away dismisses it.
-  w.on("blur", () => closeGlassboxInput());
+  // Spotlight-style: clicking away dismisses it — but NOT while a glass-box flow
+  // is live (the confirm dialog steals focus); the bar stays to show the phases
+  // and self-closes a moment after the flow finishes (relayGlassboxPhase).
+  w.on("blur", () => { if (!glassboxFlowActive) closeGlassboxInput(); });
   w.on("closed", () => { if (glassboxInputWin === w) glassboxInputWin = null; });
+}
+
+// Glass-box phase relay (direction 1: middle-state feedback). Turns the semantic
+// phases GlassboxRemote emits into live feedback on the Ctrl+Space bar (a visible
+// "glass box") plus a pet-state reflection. The phase→UI mapping lives in the
+// pure, unit-tested glassbox-phase-ui module; this is just Electron glue.
+const { phaseFeedback: _glassboxPhaseFeedback } = require("./glassbox-phase-ui");
+const { resolvePhaseReflection: _resolvePhaseReflection } = require("./state-phase-resolver");
+const { speechReflection: _speechReflection } = require("./glassbox-speech");
+let glassboxFlowActive = false;
+let glassboxPhaseCloseTimer = null;
+let glassboxDemoRunning = false;
+let glassboxDemoCancel = false;
+function relayGlassboxPhase(phase) {
+  const fb = _glassboxPhaseFeedback(phase);
+  const payload = { phase, status: fb.status, emoji: fb.emoji, petState: fb.petState, terminal: fb.terminal };
+  // Broadcast the phase to renderer observers (status / HUD).
+  try { sendToRenderer("glassbox-phase", payload); } catch {}
+  // Reflect the phase on the pet via the sanctioned setState(). The resolver
+  // skips the sleep family / high-priority machine states so a phase never wakes
+  // the pet or stomps the session machine; setState() itself gates DND.
+  try {
+    const cur = (typeof resolveDisplayState === "function") ? resolveDisplayState() : null;
+    const reflect = _resolvePhaseReflection(phase, cur);
+    if (reflect && typeof setState === "function") setState(reflect);
+  } catch {}
+  if (glassboxPhaseCloseTimer) { clearTimeout(glassboxPhaseCloseTimer); glassboxPhaseCloseTimer = null; }
+  if (glassboxInputWin && !glassboxInputWin.isDestroyed()) {
+    try { glassboxInputWin.webContents.send("glassbox-phase", payload); } catch {}
+    if (fb.terminal) {
+      glassboxFlowActive = false;
+      glassboxPhaseCloseTimer = setTimeout(() => { glassboxPhaseCloseTimer = null; closeGlassboxInput(); }, 1600);
+    } else {
+      glassboxFlowActive = true;
+    }
+  } else {
+    glassboxFlowActive = false;
+  }
 }
 let suppressTelegramApprovalSidecarSync = 0;
 let hardwareBuddyAdapter = null;
@@ -1254,6 +1294,12 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
         // temp file after a window comfortably longer than a short line.
         sendToRenderer("glassbox-play", { url: pathToFileURL(file).href, volume: soundVolume });
         setTimeout(() => { try { fsMod.unlinkSync(file); } catch {} }, 20000);
+        // Make the pet look engaged while it speaks (gated; one-shot auto-returns).
+        try {
+          const cur = (typeof resolveDisplayState === "function") ? resolveDisplayState() : null;
+          const st = _speechReflection(undefined, cur);
+          if (st && typeof setState === "function") setState(st);
+        } catch {}
       },
       now: () => Date.now(),
       log: (msg) => sessionLog(msg),
@@ -1354,7 +1400,16 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
 
     const { GlassboxRemote } = require("./glassbox-remote");
     glassboxRemote = new GlassboxRemote({
-      orchestrate: (text, octx) => glassboxOrchestrator.orchestrate(text, octx, {}),
+      orchestrate: (text, octx) => {
+        // Direction 4: settings override env/built-ins when set; empty = unset.
+        const snap = (_settingsController && typeof _settingsController.getSnapshot === "function")
+          ? _settingsController.getSnapshot() : null;
+        const gb = (snap && snap.glassbox) || {};
+        const oopts = {};
+        if (gb.systemPrompt) oopts.systemPrompt = gb.systemPrompt;
+        if (gb.orchestratorModel) oopts.model = gb.orchestratorModel;
+        return glassboxOrchestrator.orchestrate(text, octx, oopts);
+      },
       getForegroundWindow: resolveForegroundWindow,
       takeScreenshot: captureScreenshot,
       dispatchFn: (plan, o) => glassboxDispatch.dispatch(plan, { onComplete: o && o.onComplete }),
@@ -1395,6 +1450,7 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
           && _perm.getActionablePermissions().length > 0,
       }),
       defaultCwd: null, // don't guess (spec §6); ask when no window/session cwd
+      onPhase: (phase) => relayGlassboxPhase(phase),
       log: (msg) => sessionLog(msg),
     });
     sessionLog("glassbox-remote: Phase 2 remote control enabled");
@@ -3338,6 +3394,35 @@ if (!gotTheLock) {
         sessionLog(`glassbox-voice: hotkey register threw: ${err && err.message}`);
       }
 
+      // One-key Demo mode (Ctrl+Shift+D): a fully synthetic showcase of the
+      // glass-box flow for judges — drives the same pet + bar + TTS as a real
+      // run but touches no agent/mic/key. Press again to cancel.
+      try {
+        const demoAccel = "CommandOrControl+Shift+D";
+        const okDemo = globalShortcut.register(demoAccel, () => {
+          if (glassboxDemoRunning) { glassboxDemoCancel = true; return; }
+          glassboxDemoCancel = false;
+          glassboxDemoRunning = true;
+          glassboxFlowActive = true;
+          const { runDemo } = require("./glassbox-demo");
+          const startDemo = () => Promise.resolve(runDemo({
+            emitPhase: (p) => relayGlassboxPhase(p),
+            speak: (t) => { try { glassboxVoice && glassboxVoice.speak(t); } catch {} },
+            isCancelled: () => glassboxDemoCancel,
+          })).then((res) => {
+            // On cancel there is no terminal phase to auto-close the bar; clean up.
+            if (!res || !res.completed) { glassboxFlowActive = false; closeGlassboxInput(); }
+          }).catch((err) => sessionLog(`glassbox-demo: ${err && err.message}`))
+            .finally(() => { glassboxDemoRunning = false; });
+          const needOpen = !glassboxInputWin || glassboxInputWin.isDestroyed();
+          if (needOpen) toggleGlassboxInput();
+          setTimeout(startDemo, needOpen ? 400 : 0); // let the bar finish loading
+        });
+        sessionLog(`glassbox-voice: demo hotkey ${demoAccel} ${okDemo ? "registered" : "FAILED"}`);
+      } catch (err) {
+        sessionLog(`glassbox-voice: demo hotkey threw: ${err && err.message}`);
+      }
+
       // Input bar IPC: transcribe a recorded clip and echo it back to the bar;
       // dispatch the (possibly edited) text on submit; close on Esc.
       const glassboxAsr = require("./glassbox-asr");
@@ -3366,10 +3451,19 @@ if (!gotTheLock) {
       ipcMain.on("glassbox-input-submit", (_evt, payload) => {
         const text = payload && typeof payload.text === "string" ? payload.text.trim() : "";
         sessionLog(`glassbox-input: submit len=${text.length} remote=${!!glassboxRemote}`);
-        closeGlassboxInput();
         if (text && glassboxRemote) {
+          // Keep the bar open so it shows the live glass-box phases; it
+          // self-closes shortly after the flow reaches a terminal phase
+          // (relayGlassboxPhase). Errors fall back to an immediate close.
+          glassboxFlowActive = true;
           Promise.resolve(glassboxRemote.handle(text))
-            .catch((err) => sessionLog(`glassbox-remote: handle failed: ${err && err.message}`));
+            .catch((err) => {
+              sessionLog(`glassbox-remote: handle failed: ${err && err.message}`);
+              glassboxFlowActive = false;
+              closeGlassboxInput();
+            });
+        } else {
+          closeGlassboxInput();
         }
       });
       ipcMain.on("glassbox-input-close", () => closeGlassboxInput());
