@@ -285,6 +285,8 @@ function _glassboxCfg() {
 }
 const _initGlassboxBubble = require("./glassbox-bubble");
 let _glassboxBubble = null;
+const _initGlassboxFx = require("./glassbox-fx");
+let _glassboxFx = null;
 let glassboxDemoRunning = false;
 let glassboxDemoCancel = false;
 function relayGlassboxPhase(phase) {
@@ -295,6 +297,8 @@ function relayGlassboxPhase(phase) {
   // The canonical glass-box surface: a thought bubble floating above the PET, so
   // the steps live on the character. Self-hides after a terminal phase.
   try { if (_glassboxBubble) _glassboxBubble.showPhase({ emoji: fb.emoji, status: fb.status, terminal: fb.terminal }); } catch {}
+  // Confetti burst on a successful finish — a little reward the judges can see.
+  if (phase === "done" || phase === "approved") { try { if (_glassboxFx) _glassboxFx.celebrate(phase); } catch {} }
   // Reflect the phase on the pet via the sanctioned setState(). The resolver
   // skips the sleep family / high-priority machine states so a phase never wakes
   // the pet or stomps the session machine; setState() itself gates DND.
@@ -1165,6 +1169,12 @@ const _updateBubble = initUpdateBubble(_updateBubbleCtx);
 // Glass-box thought bubble — floats the live step ("💭 在想…" → "✅ 搞定") above
 // the pet so the glass-box lives on the character, not the transient input bar.
 _glassboxBubble = _initGlassboxBubble({
+  getPetWindowBounds,
+  getNearestWorkArea,
+  get petHidden() { return petWindowRuntime.isPetHidden(); },
+});
+// Celebration FX overlay — confetti burst on a successful finish.
+_glassboxFx = _initGlassboxFx({
   getPetWindowBounds,
   getNearestWorkArea,
   get petHidden() { return petWindowRuntime.isPetHidden(); },
@@ -3160,8 +3170,8 @@ function createWindow() {
   });
 
   // Event-level safety net for position sync
-  win.on("move", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} });
-  win.on("resize", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} });
+  win.on("move", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} });
+  win.on("resize", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} });
 
   syncSessionHudVisibility();
 
@@ -3638,6 +3648,7 @@ if (!gotTheLock) {
     flushRuntimeStateToPrefs();
     globalShortcut.unregisterAll();
     try { if (glassboxWakeWin && !glassboxWakeWin.isDestroyed()) glassboxWakeWin.close(); } catch {}
+    try { if (_glassboxFx) _glassboxFx.cleanup(); } catch {}
     void settingsSizePreviewSession.cleanup();
     stopTelegramApprovalSidecar();
     if (typeof unsubscribeHardwareBuddySettings === "function") {

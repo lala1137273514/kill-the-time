@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  #stage { position: absolute; inset: 0; }
+  .piece {
+    position: absolute; left: 50%; top: 46%; width: 9px; height: 14px; border-radius: 2px;
+    opacity: 0; will-change: transform, opacity;
+  }
+  @keyframes burst {
+    0%   { transform: translate(-50%, -50%) translate(0, 0) rotate(0deg); opacity: 0; }
+    12%  { opacity: 1; }
+    100% { transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; }
+  }
+  #pop {
+    position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%) scale(0);
+    font-size: 44px; opacity: 0;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+  }
+  @keyframes pop {
+    0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0; }
+    30%  { transform: translate(-50%, -50%) scale(1.25); opacity: 1; }
+    72%  { opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1);   opacity: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="stage"><div id="pop"></div></div>
+<script>
+  const { ipcRenderer } = require("electron");
+  const stage = document.getElementById("stage");
+  const pop = document.getElementById("pop");
+  const COLORS = ["#ff5e5e", "#ffd34e", "#5ed1ff", "#7dffa6", "#c08bff", "#ff9f43"];
+
+  function burst(kind) {
+    stage.querySelectorAll(".piece").forEach((p) => p.remove());
+    pop.textContent = kind === "approved" ? "✓" : "🎉";
+    pop.style.animation = "none";
+    void pop.offsetWidth; // restart the animation
+    pop.style.animation = "pop 1.4s ease-out forwards";
+    const N = 26;
+    for (let i = 0; i < N; i++) {
+      const d = document.createElement("div");
+      d.className = "piece";
+      const ang = Math.random() * Math.PI * 2;
+      const dist = 60 + Math.random() * 95;
+      d.style.setProperty("--dx", (Math.cos(ang) * dist).toFixed(0) + "px");
+      d.style.setProperty("--dy", (Math.sin(ang) * dist - 24).toFixed(0) + "px");
+      d.style.setProperty("--rot", (Math.random() * 720 - 360).toFixed(0) + "deg");
+      d.style.background = COLORS[i % COLORS.length];
+      d.style.animation = `burst ${(1.1 + Math.random() * 0.5).toFixed(2)}s ease-out forwards`;
+      d.style.animationDelay = (Math.random() * 0.12).toFixed(2) + "s";
+      stage.appendChild(d);
+    }
+  }
+
+  ipcRenderer.on("glassbox-fx-burst", (_e, p) => burst(p && p.kind));
+</script>
+</body>
+</html>
