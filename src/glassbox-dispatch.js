@@ -60,15 +60,16 @@ function planDispatch({ window = {}, decision = {}, screenshotPath = "", default
 // it, so claude runs with permissions bypassed; otherwise its first tool use
 // hangs forever on a permission prompt nobody can answer. Overridable via
 // CLAWD_DISPATCH_PERMISSION_MODE (e.g. acceptEdits, default, plan).
-function dispatchPermissionMode() {
-  return process.env.CLAWD_DISPATCH_PERMISSION_MODE || "bypassPermissions";
+function dispatchPermissionMode(override) {
+  const o = typeof override === "string" ? override.trim() : "";
+  return o || process.env.CLAWD_DISPATCH_PERMISSION_MODE || "bypassPermissions";
 }
 
 function buildArgs(plan = {}) {
   if (plan.agent === "codex") {
     return ["exec"];
   }
-  const perm = ["--permission-mode", dispatchPermissionMode()];
+  const perm = ["--permission-mode", dispatchPermissionMode(plan.permissionMode)];
   if (plan.mode === "resume" && plan.sessionId) {
     return ["-r", plan.sessionId, "-p", ...perm];
   }

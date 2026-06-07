@@ -231,6 +231,7 @@ let telegramDirectSend = null;
 // Glass-box voice narration (demo/kill-boring-loading). Opt-in via
 // CLAWD_GLASSBOX_VOICE=1; stays null otherwise so normal runs are untouched.
 let glassboxVoice = null;
+let glassboxSupervisor = null;
 // Glass-box push-to-talk listener (same opt-in flag). Null unless enabled.
 let glassboxListen = null;
 // Glass-box Phase 2 remote-control flow (orchestrate -> capture -> dispatch).
@@ -275,6 +276,11 @@ const { phaseFeedback: _glassboxPhaseFeedback } = require("./glassbox-phase-ui")
 const { resolvePhaseReflection: _resolvePhaseReflection } = require("./state-phase-resolver");
 const { speechReflection: _speechReflection } = require("./glassbox-speech");
 const { needsConfirmation: _needsConfirmation } = require("./glassbox-router");
+const { resolveGlassboxConfig: _resolveGlassboxConfig } = require("./glassbox-config");
+function _glassboxCfg() {
+  const snap = (_settingsController && typeof _settingsController.getSnapshot === "function") ? _settingsController.getSnapshot() : null;
+  return _resolveGlassboxConfig((snap && snap.glassbox) || {}, process.env);
+}
 const _initGlassboxBubble = require("./glassbox-bubble");
 let _glassboxBubble = null;
 let glassboxDemoRunning = false;
@@ -1233,6 +1239,21 @@ const _stateCtx = {
     if (glassboxVoice) {
       try { glassboxVoice.onSnapshot(snapshot); } catch {}
     }
+    // Glass-box active supervisor: nudge on a stall, announce done/error. Best-
+    // effort — must never block the broadcast or crash the pet.
+    if (glassboxSupervisor) {
+      try {
+        const ev = glassboxSupervisor.noteSnapshot(snapshot);
+        if (ev) {
+          if (glassboxVoice) glassboxVoice.speak(ev.say);
+          if (_glassboxBubble) _glassboxBubble.showPhase({
+            emoji: ev.kind === "done" ? "✅" : ev.kind === "error" ? "⚠️" : "👀",
+            status: ev.say,
+            terminal: ev.kind !== "stuck",
+          });
+        }
+      } catch {}
+    }
   },
   // Phase 3b: 读 prefs.themeOverrides 判断某个 oneshot state 是否被用户禁用。
   // state.js gate 调这个做 early-return。不做白名单校验——settings-actions
@@ -1284,7 +1305,7 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
     const { pathToFileURL } = require("url");
     let voiceSeq = 0;
     glassboxVoice = new GlassboxVoice({
-      synth: (text) => glassboxTts.synthesize(text),
+      synth: (text) => glassboxTts.synthesize(text, { voice: _glassboxCfg().ttsVoice }),
       play: (buf) => {
         // Honor mute / Do-Not-Disturb — playSound() gates these for chimes, and
         // narration (a louder, more frequent voice) must respect them too.
@@ -1308,13 +1329,22 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
     });
     sessionLog("glassbox-voice: enabled (CLAWD_GLASSBOX_VOICE=1)");
 
+    // Active supervisor: speaks up on a stall / on completion of a dispatched run.
+    const { createSupervisor } = require("./glassbox-supervisor");
+    const _stuckMs = Number.parseInt(process.env.CLAWD_GLASSBOX_STUCK_MS, 10);
+    glassboxSupervisor = createSupervisor({
+      stuckMs: Number.isFinite(_stuckMs) && _stuckMs > 0 ? _stuckMs : 20000,
+      now: () => Date.now(),
+    });
+    sessionLog("glassbox-supervisor: enabled");
+
     // D3 push-to-talk listener: local-whisper transcribe -> intent -> act.
     // approve/deny resolves the newest pending permission (real); a task/answer
     // utterance is copied to the clipboard (clawd has no stdin into the agent).
     const { GlassboxListener } = require("./glassbox-listen");
     const glassboxAsr = require("./glassbox-asr");
     glassboxListen = new GlassboxListener({
-      transcribe: (wavPath) => glassboxAsr.transcribe(wavPath, {}),
+      transcribe: (wavPath) => glassboxAsr.transcribe(wavPath, { model: _glassboxCfg().whisperModel }),
       getPending: () => ({
         permissionPending: typeof _perm.getActionablePermissions === "function"
           && _perm.getActionablePermissions().length > 0,
@@ -1407,14 +1437,13 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
         const snap = (_settingsController && typeof _settingsController.getSnapshot === "function")
           ? _settingsController.getSnapshot() : null;
         const gb = (snap && snap.glassbox) || {};
-        const oopts = {};
+        const oopts = { model: _glassboxCfg().orchestratorModel };
         if (gb.systemPrompt) oopts.systemPrompt = gb.systemPrompt;
-        if (gb.orchestratorModel) oopts.model = gb.orchestratorModel;
         return glassboxOrchestrator.orchestrate(text, octx, oopts);
       },
       getForegroundWindow: resolveForegroundWindow,
       takeScreenshot: captureScreenshot,
-      dispatchFn: (plan, o) => glassboxDispatch.dispatch(plan, { onComplete: o && o.onComplete }),
+      dispatchFn: (plan, o) => glassboxDispatch.dispatch({ ...plan, permissionMode: _glassboxCfg().permissionMode }, { onComplete: o && o.onComplete }),
       getSessionIdle: (sid) => {
         const snap = (_state && typeof _state.buildSessionSnapshot === "function")
           ? _state.buildSessionSnapshot() : { sessions: [] };
@@ -3083,8 +3112,8 @@ function createWindow() {
   });
 
   // Event-level safety net for position sync
-  win.on("move", () => petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange());
-  win.on("resize", () => petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange());
+  win.on("move", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} });
+  win.on("resize", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} });
 
   syncSessionHudVisibility();
 
@@ -3395,7 +3424,7 @@ if (!gotTheLock) {
       // Ctrl+Space opens the input bar (overridable). NOTE: on Windows this can
       // collide with the IME language toggle — if it fails, set
       // CLAWD_GLASSBOX_HOTKEY to something else.
-      const accel = process.env.CLAWD_GLASSBOX_HOTKEY || "CommandOrControl+Space";
+      const accel = _glassboxCfg().hotkey;
       try {
         const ok = globalShortcut.register(accel, () => toggleGlassboxInput());
         sessionLog(`glassbox-voice: input-bar hotkey ${accel} ${ok ? "registered" : "FAILED (conflict? IME?)"}`);
@@ -3453,7 +3482,7 @@ if (!gotTheLock) {
           const os = require("os"), fsp = require("fs");
           const file = require("path").join(os.tmpdir(), `clawd-input-${process.pid}-${Date.now()}.${ext}`);
           fsp.writeFileSync(file, Buffer.from(buffer));
-          Promise.resolve(glassboxAsr.transcribe(file, {}))
+          Promise.resolve(glassboxAsr.transcribe(file, { model: _glassboxCfg().whisperModel }))
             .then((text) => { if (!wc.isDestroyed()) wc.send("glassbox-input-transcript", { text: text || "" }); })
             .catch((err) => {
               sessionLog(`glassbox-input: transcribe failed: ${err && err.message}`);
