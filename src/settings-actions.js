@@ -118,6 +118,7 @@ const { EVENTS: TELEGRAM_MIGRATION_EVENTS } = require("./telegram-migration-stat
 const {
   validateHardwareBuddySettings,
 } = require("./hardware-buddy-settings");
+const { validateGlassboxField } = require("./glassbox-settings-section");
 
 const TELEGRAM_MIGRATION_RENDERER_EVENTS = new Set([
   TELEGRAM_MIGRATION_EVENTS.USER_TEST_NATIVE,
@@ -1125,6 +1126,28 @@ const repairDoctorIssue = createRepairDoctorIssue({
   setBubbleCategoryEnabled,
 });
 
+// Glass-box settings write a single nested `glassbox` object, so per-field edits
+// from the UI go through this command: validate ONE field, then atomically commit
+// the merged object (the controller's applyUpdate can't write nested-dot keys).
+function setGlassboxField(payload, deps) {
+  if (!payload || typeof payload !== "object") {
+    return { status: "error", message: "setGlassboxField: payload must be { field, value }" };
+  }
+  const { field, value } = payload;
+  if (typeof field !== "string" || !field) {
+    return { status: "error", message: "setGlassboxField.field must be a non-empty string" };
+  }
+  const check = validateGlassboxField(field, value);
+  if (check.status !== "ok") return check;
+  const snapshot = (deps && deps.snapshot) || {};
+  const current = (snapshot.glassbox && typeof snapshot.glassbox === "object" && !Array.isArray(snapshot.glassbox))
+    ? snapshot.glassbox
+    : {};
+  if (current[field] === value) return { status: "ok", noop: true };
+  return { status: "ok", commit: { glassbox: { ...current, [field]: value } } };
+}
+setGlassboxField.lockKey = "glassbox";
+
 const commandRegistry = {
   removeTheme,
   installHooks,
@@ -1150,6 +1173,7 @@ const commandRegistry = {
   importAnimationOverrides,
   setWideHitboxOverride,
   setThemeSelection,
+  setGlassboxField,
   "remoteSsh.add": remoteSshAddProfile,
   "remoteSsh.update": remoteSshUpdateProfile,
   "remoteSsh.delete": remoteSshDeleteProfile,

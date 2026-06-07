@@ -12,6 +12,7 @@ const SIDEBAR_TABS = [
   { id: "telegram-approval", icon: "\u2708", labelKey: "sidebarTelegramApproval", available: true },
   { id: "remote-ssh", icon: "\u{1F50C}", labelKey: "sidebarRemoteSsh", available: true },
   { id: "mobile", icon: "\u{1F4F1}", labelKey: "sidebarMobile", available: true },
+  { id: "glassbox", icon: "\u{1F50A}", labelKey: "sidebarGlassbox", available: true },
   { id: "about", icon: "\u2139", labelKey: "sidebarAbout", available: true },
 ];
 
@@ -81,6 +82,7 @@ if (globalThis.ClawdSettingsTabTelegramApproval) globalThis.ClawdSettingsTabTele
 globalThis.ClawdSettingsTabAbout.init(core);
 if (globalThis.ClawdSettingsTabRemoteSsh) globalThis.ClawdSettingsTabRemoteSsh.init(core);
 if (globalThis.ClawdSettingsTabMobile) globalThis.ClawdSettingsTabMobile.init(core);
+if (globalThis.ClawdSettingsTabGlassbox) globalThis.ClawdSettingsTabGlassbox.init(core);
 
 if (window.settingsAPI && typeof window.settingsAPI.onChanged === "function") {
   window.settingsAPI.onChanged((payload) => core.ops.applyChanges(payload));
