@@ -1249,3 +1249,47 @@ describe("prefs.save", () => {
     });
   });
 });
+
+describe("prefs glassbox settings (v9)", () => {
+  it("defaults glassbox to the unset block", () => {
+    const d = prefs.getDefaults();
+    assert.deepStrictEqual(d.glassbox, {
+      voiceEnabled: false,
+      wakeWordEnabled: false,
+      hotkey: "",
+      orchestratorModel: "",
+      ttsVoice: "",
+      whisperModel: "",
+      permissionMode: "",
+      systemPrompt: "",
+    });
+  });
+
+  it("normalizes glassbox: keeps valid values, drops bad ones", () => {
+    const v = prefs.validate({
+      glassbox: { orchestratorModel: "qwen-max", permissionMode: "auto", voiceEnabled: "yes", systemPrompt: "X" },
+    });
+    assert.strictEqual(v.glassbox.orchestratorModel, "qwen-max");
+    assert.strictEqual(v.glassbox.permissionMode, ""); // invalid mode → unset
+    assert.strictEqual(v.glassbox.voiceEnabled, false); // bad type → default
+    assert.strictEqual(v.glassbox.systemPrompt, "X");
+  });
+
+  it("migrates older prefs to v9 and fills glassbox from defaults", () => {
+    const v = prefs.validate(prefs.migrate({ version: 8, lang: "zh" }));
+    assert.strictEqual(v.version, prefs.CURRENT_VERSION);
+    assert.strictEqual(v.lang, "zh");
+    assert.strictEqual(v.glassbox.voiceEnabled, false);
+    assert.strictEqual(v.glassbox.systemPrompt, "");
+  });
+
+  it("round-trips a glassbox override through save/load", () => {
+    const p = makeTempPath();
+    const snap = prefs.getDefaults();
+    snap.glassbox = { ...snap.glassbox, systemPrompt: "你是新脑", orchestratorModel: "qwen-max" };
+    prefs.save(p, snap);
+    const { snapshot } = prefs.load(p);
+    assert.strictEqual(snapshot.glassbox.systemPrompt, "你是新脑");
+    assert.strictEqual(snapshot.glassbox.orchestratorModel, "qwen-max");
+  });
+});

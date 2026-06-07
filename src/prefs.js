@@ -31,6 +31,10 @@ const {
   normalizeHardwareBuddySettings,
 } = require("./hardware-buddy-settings");
 const {
+  DEFAULT_GLASSBOX_SETTINGS,
+  normalizeGlassboxSettings,
+} = require("./glassbox-settings");
+const {
   NOTIFICATION_DEFAULT_SECONDS,
   UPDATE_DEFAULT_SECONDS,
   PERMISSION_DEFAULT_SECONDS,
@@ -38,7 +42,7 @@ const {
 } = require("./bubble-policy");
 const { normalizeSessionAliases } = require("./session-alias");
 
-const CURRENT_VERSION = 8;
+const CURRENT_VERSION = 9;
 
 // ── Schema ──
 // Each field has: type, default OR defaultFactory, optional enum/normalize/validate.
@@ -259,6 +263,13 @@ const SCHEMA = {
     defaultFactory: () => ({ ...DEFAULT_HARDWARE_BUDDY_SETTINGS }),
     normalize: normalizeHardwareBuddySettings,
   },
+  // Glass-box voice-remote knobs (direction 4). Empty/false = use env / built-in.
+  // Secrets stay in env (plaintext prefs) — see glassbox-settings.js.
+  glassbox: {
+    type: "object",
+    defaultFactory: () => ({ ...DEFAULT_GLASSBOX_SETTINGS }),
+    normalize: normalizeGlassboxSettings,
+  },
   // Background update-check toggle. When true, the scheduler in updater.js
   // runs a quiet GitHub discovery on a 12-hour cycle (packaged builds only).
   // Default on per #329.
@@ -465,6 +476,11 @@ function migrate(raw) {
       out.tgApproval.notifyOnComplete = false;
     }
     out.version = 8;
+  }
+  // v8 → v9: introduce the `glassbox` settings block (voice-remote knobs). The
+  // new key fills from schema defaults via validate(); just record the bump.
+  if (out.version < 9) {
+    out.version = 9;
   }
   if ((typeof out.version === "number" ? out.version : 0) < CURRENT_VERSION) {
     out.version = CURRENT_VERSION;
