@@ -253,7 +253,10 @@ function toggleGlassboxInput() {
   const w = new BrowserWindow({
     width: 520, height: 150, frame: false, transparent: true, resizable: false,
     alwaysOnTop: true, skipTaskbar: true, show: false, fullscreenable: false, minimizable: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false },
+    // sandbox:false is REQUIRED for nodeIntegration's require() to work in the
+    // inline script; with the Electron default (sandbox:true) the bar's JS would
+    // throw on require() and Enter/🎙 would silently do nothing.
+    webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
   });
   glassboxInputWin = w;
   w.loadFile(pathMod.join(__dirname, "glassbox-input.html"));
@@ -3359,6 +3362,7 @@ if (!gotTheLock) {
       });
       ipcMain.on("glassbox-input-submit", (_evt, payload) => {
         const text = payload && typeof payload.text === "string" ? payload.text.trim() : "";
+        sessionLog(`glassbox-input: submit len=${text.length} remote=${!!glassboxRemote}`);
         closeGlassboxInput();
         if (text && glassboxRemote) {
           Promise.resolve(glassboxRemote.handle(text))
