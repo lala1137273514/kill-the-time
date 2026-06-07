@@ -1325,22 +1325,25 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
       };
     };
 
-    const captureScreenshot = async (window) => {
+    const captureScreenshot = async (_window) => {
       const { desktopCapturer } = require("electron");
       const primary = screen.getPrimaryDisplay();
-      const sf = primary.scaleFactor || 1;
+      // SCREEN ONLY: enumerating every window at full res made WGC time out per
+      // window (PrintWindow/BitBlt failures, 5s/frame). One screen source at a
+      // modest size is fast and robust; it still contains the foreground window.
+      const maxW = 1600;
+      const scale = Math.min(1, maxW / (primary.size.width || maxW));
       const thumbnailSize = {
-        width: Math.round(primary.size.width * sf),
-        height: Math.round(primary.size.height * sf),
+        width: Math.round((primary.size.width || maxW) * scale),
+        height: Math.round((primary.size.height || 900) * scale),
       };
-      const sources = await desktopCapturer.getSources({ types: ["window", "screen"], thumbnailSize });
-      // Prefer the matching foreground window by title; fall back to full screen.
-      let src = null;
-      if (window && window.title) {
-        src = sources.find((s) => s.name && window.title && s.name.includes(window.title));
-      }
-      if (!src) src = sources.find((s) => String(s.id).startsWith("screen:")) || sources[0];
-      if (!src || !src.thumbnail) throw new Error("desktopCapturer: no source");
+      // Hard timeout so a flaky capturer can never hang the dispatch flow.
+      const sources = await Promise.race([
+        desktopCapturer.getSources({ types: ["screen"], thumbnailSize }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("screenshot timed out")), 4000)),
+      ]);
+      const src = sources.find((s) => String(s.id).startsWith("screen")) || sources[0];
+      if (!src || !src.thumbnail) throw new Error("desktopCapturer: no screen source");
       const osMod2 = require("os");
       const pathMod2 = require("path");
       const fsMod2 = require("fs");
