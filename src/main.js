@@ -261,10 +261,9 @@ function toggleGlassboxInput() {
   glassboxInputWin = w;
   w.loadFile(pathMod.join(__dirname, "glassbox-input.html"));
   w.once("ready-to-show", () => { try { w.center(); w.show(); w.focus(); } catch {} });
-  // Spotlight-style: clicking away dismisses it — but NOT while a glass-box flow
-  // is live (the confirm dialog steals focus); the bar stays to show the phases
-  // and self-closes a moment after the flow finishes (relayGlassboxPhase).
-  w.on("blur", () => { if (!glassboxFlowActive) closeGlassboxInput(); });
+  // Spotlight-style: clicking away dismisses it. The live glass-box steps live
+  // on the pet's thought bubble now, so the bar can close freely after submit.
+  w.on("blur", () => closeGlassboxInput());
   w.on("closed", () => { if (glassboxInputWin === w) glassboxInputWin = null; });
 }
 
@@ -276,15 +275,18 @@ const { phaseFeedback: _glassboxPhaseFeedback } = require("./glassbox-phase-ui")
 const { resolvePhaseReflection: _resolvePhaseReflection } = require("./state-phase-resolver");
 const { speechReflection: _speechReflection } = require("./glassbox-speech");
 const { needsConfirmation: _needsConfirmation } = require("./glassbox-router");
-let glassboxFlowActive = false;
-let glassboxPhaseCloseTimer = null;
+const _initGlassboxBubble = require("./glassbox-bubble");
+let _glassboxBubble = null;
 let glassboxDemoRunning = false;
 let glassboxDemoCancel = false;
 function relayGlassboxPhase(phase) {
   const fb = _glassboxPhaseFeedback(phase);
   const payload = { phase, status: fb.status, emoji: fb.emoji, petState: fb.petState, terminal: fb.terminal };
-  // Broadcast the phase to renderer observers (status / HUD).
+  // Renderer observers (status / HUD).
   try { sendToRenderer("glassbox-phase", payload); } catch {}
+  // The canonical glass-box surface: a thought bubble floating above the PET, so
+  // the steps live on the character. Self-hides after a terminal phase.
+  try { if (_glassboxBubble) _glassboxBubble.showPhase({ emoji: fb.emoji, status: fb.status, terminal: fb.terminal }); } catch {}
   // Reflect the phase on the pet via the sanctioned setState(). The resolver
   // skips the sleep family / high-priority machine states so a phase never wakes
   // the pet or stomps the session machine; setState() itself gates DND.
@@ -293,17 +295,9 @@ function relayGlassboxPhase(phase) {
     const reflect = _resolvePhaseReflection(phase, cur);
     if (reflect && typeof setState === "function") setState(reflect);
   } catch {}
-  if (glassboxPhaseCloseTimer) { clearTimeout(glassboxPhaseCloseTimer); glassboxPhaseCloseTimer = null; }
+  // If the input bar happens to still be open, mirror the step there too.
   if (glassboxInputWin && !glassboxInputWin.isDestroyed()) {
     try { glassboxInputWin.webContents.send("glassbox-phase", payload); } catch {}
-    if (fb.terminal) {
-      glassboxFlowActive = false;
-      glassboxPhaseCloseTimer = setTimeout(() => { glassboxPhaseCloseTimer = null; closeGlassboxInput(); }, 1600);
-    } else {
-      glassboxFlowActive = true;
-    }
-  } else {
-    glassboxFlowActive = false;
   }
 }
 let suppressTelegramApprovalSidecarSync = 0;
@@ -1129,6 +1123,13 @@ const _updateBubbleCtx = {
   reapplyMacVisibility,
 };
 const _updateBubble = initUpdateBubble(_updateBubbleCtx);
+// Glass-box thought bubble — floats the live step ("💭 在想…" → "✅ 搞定") above
+// the pet so the glass-box lives on the character, not the transient input bar.
+_glassboxBubble = _initGlassboxBubble({
+  getPetWindowBounds,
+  getNearestWorkArea,
+  get petHidden() { return petWindowRuntime.isPetHidden(); },
+});
 const {
   showUpdateBubble,
   hideUpdateBubble,
@@ -3411,20 +3412,16 @@ if (!gotTheLock) {
           if (glassboxDemoRunning) { glassboxDemoCancel = true; return; }
           glassboxDemoCancel = false;
           glassboxDemoRunning = true;
-          glassboxFlowActive = true;
           const { runDemo } = require("./glassbox-demo");
-          const startDemo = () => Promise.resolve(runDemo({
-            emitPhase: (p) => relayGlassboxPhase(p),
+          Promise.resolve(runDemo({
+            emitPhase: (p) => relayGlassboxPhase(p),   // drives the on-pet bubble + pet
             speak: (t) => { try { glassboxVoice && glassboxVoice.speak(t); } catch {} },
             isCancelled: () => glassboxDemoCancel,
           })).then((res) => {
-            // On cancel there is no terminal phase to auto-close the bar; clean up.
-            if (!res || !res.completed) { glassboxFlowActive = false; closeGlassboxInput(); }
+            // On cancel no terminal phase fires, so hide the bubble explicitly.
+            if (!res || !res.completed) { try { _glassboxBubble && _glassboxBubble.hide(); } catch {} }
           }).catch((err) => sessionLog(`glassbox-demo: ${err && err.message}`))
             .finally(() => { glassboxDemoRunning = false; });
-          const needOpen = !glassboxInputWin || glassboxInputWin.isDestroyed();
-          if (needOpen) toggleGlassboxInput();
-          setTimeout(startDemo, needOpen ? 400 : 0); // let the bar finish loading
         });
         sessionLog(`glassbox-voice: demo hotkey ${demoAccel} ${okDemo ? "registered" : "FAILED"}`);
       } catch (err) {
@@ -3459,19 +3456,12 @@ if (!gotTheLock) {
       ipcMain.on("glassbox-input-submit", (_evt, payload) => {
         const text = payload && typeof payload.text === "string" ? payload.text.trim() : "";
         sessionLog(`glassbox-input: submit len=${text.length} remote=${!!glassboxRemote}`);
+        // Hand off to the pet: close the bar; the on-pet thought bubble carries
+        // the live glass-box steps (thinking → … → done).
+        closeGlassboxInput();
         if (text && glassboxRemote) {
-          // Keep the bar open so it shows the live glass-box phases; it
-          // self-closes shortly after the flow reaches a terminal phase
-          // (relayGlassboxPhase). Errors fall back to an immediate close.
-          glassboxFlowActive = true;
           Promise.resolve(glassboxRemote.handle(text))
-            .catch((err) => {
-              sessionLog(`glassbox-remote: handle failed: ${err && err.message}`);
-              glassboxFlowActive = false;
-              closeGlassboxInput();
-            });
-        } else {
-          closeGlassboxInput();
+            .catch((err) => sessionLog(`glassbox-remote: handle failed: ${err && err.message}`));
         }
       });
       ipcMain.on("glassbox-input-close", () => closeGlassboxInput());

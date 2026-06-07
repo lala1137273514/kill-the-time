@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: transparent; overflow: hidden; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  #bubble {
+    margin: 8px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px;
+    background: rgba(28, 28, 30, 0.96);
+    border: 1px solid rgba(120, 170, 255, 0.28);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    color: #fff;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 140ms ease, transform 140ms ease;
+  }
+  #bubble.show { opacity: 1; transform: translateY(0); }
+  #emoji { font-size: 18px; line-height: 1; }
+  #text { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* a soft breathing glow while a step is in flight */
+  #bubble.live { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { border-color: rgba(120, 170, 255, 0.6); } }
+</style>
+</head>
+<body>
+<div id="bubble">
+  <span id="emoji"></span>
+  <span id="text"></span>
+</div>
+<script>
+  const { ipcRenderer } = require("electron");
+  const bubble = document.getElementById("bubble");
+  const emojiEl = document.getElementById("emoji");
+  const textEl = document.getElementById("text");
+
+  ipcRenderer.on("glassbox-bubble-show", (_e, p) => {
+    if (!p) return;
+    emojiEl.textContent = p.emoji || "";
+    textEl.textContent = p.status || "";
+    bubble.classList.add("show");
+    bubble.classList.toggle("live", !p.terminal);
+  });
+
+  ipcRenderer.on("glassbox-bubble-hide", () => {
+    bubble.classList.remove("show", "live");
+  });
+</script>
+</body>
+</html>
