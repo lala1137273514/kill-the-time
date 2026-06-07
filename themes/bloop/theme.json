@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "name": "Bloop",
+  "author": "clawd-on-desk glassbox",
+  "version": "1.0.0",
+  "description": "A bouncy teal slime — a second mascot with hand-animated CSS SVG states",
+  "viewBox": { "x": -15, "y": -25, "width": 45, "height": 45 },
+  "layout": {
+    "contentBox": { "x": -4, "y": -3, "width": 23, "height": 20 },
+    "marginBox": { "x": -8, "y": -7, "width": 30, "height": 24 },
+    "centerX": 7.5,
+    "baselineY": 17,
+    "visibleHeightRatio": 0.58,
+    "baselineBottomRatio": 0.05
+  },
+  "eyeTracking": {
+    "enabled": true,
+    "states": ["idle"],
+    "eyeRatioX": 0.5,
+    "eyeRatioY": 0.62,
+    "maxOffset": 2.4,
+    "bodyScale": 0.33,
+    "shadowStretch": 0.15,
+    "shadowShift": 0.3,
+    "ids": { "eyes": "eyes-js", "body": "body-js", "shadow": "shadow-js" },
+    "shadowOrigin": "7.5px 16px"
+  },
+  "states": {
+    "idle": ["bloop-idle.svg"],
+    "thinking": ["bloop-thinking.svg"],
+    "working": ["bloop-working.svg"],
+    "attention": ["bloop-attention.svg"],
+    "notification": { "fallbackTo": "attention" },
+    "error": { "fallbackTo": "attention" },
+    "sweeping": { "fallbackTo": "working" },
+    "carrying": { "fallbackTo": "working" },
+    "sleeping": ["bloop-sleeping.svg"]
+  },
+  "sleepSequence": { "mode": "direct" },
+  "timings": {
+    "minDisplay": { "attention": 4000, "working": 1000, "thinking": 1000 },
+    "autoReturn": { "attention": 4000 },
+    "mouseIdleTimeout": 20000,
+    "mouseSleepTimeout": 60000,
+    "deepSleepTimeout": 600000
+  },
+  "hitBoxes": {
+    "default": { "x": 0, "y": 7, "w": 15, "h": 10 },
+    "sleeping": { "x": -1, "y": 11, "w": 17, "h": 6 }
+  },
+  "sleepingHitboxFiles": ["bloop-sleeping.svg"],
+  "reactions": {
+    "clickLeft": { "file": "bloop-attention.svg", "duration": 2000 },
+    "clickRight": { "file": "bloop-attention.svg", "duration": 2000 }
+  },
+  "miniMode": { "supported": false },
+  "objectScale": { "widthRatio": 1.9, "heightRatio": 1.3, "offsetX": -0.45, "offsetY": -0.25 }
+}

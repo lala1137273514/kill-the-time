@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-15 -25 45 45" width="500" height="500">
+  <defs><style>
+    #b { transform-origin: 7.5px 16px; animation: bloop-snore 3.6s ease-in-out infinite; }
+    .z { opacity: 0; animation: bloop-z 3.2s ease-out infinite; }
+    .z2 { animation-delay: 1.6s; }
+    @keyframes bloop-snore { 0%,100% { transform: scale(1.06,0.9); } 50% { transform: scale(1.11,0.85); } }
+    @keyframes bloop-z { 0% { opacity: 0; transform: translate(0,0) scale(0.6); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(2.5px,-6px) scale(1.15); } }
+  </style></defs>
+  <ellipse cx="7.5" cy="16.3" rx="7.4" ry="1" fill="#000000" opacity="0.32"/>
+  <g id="b">
+    <rect x="0.6" y="9.5" width="13.8" height="6.6" rx="3.3" fill="#4fd1b5"/>
+    <rect x="2" y="9.9" width="11" height="2.4" rx="2" fill="#7fe8d2" opacity="0.6"/>
+    <path d="M4 12.6 q1.1 0.9 2.2 0" stroke="#1f3a36" stroke-width="0.5" fill="none" stroke-linecap="round"/>
+    <path d="M8.6 12.6 q1.1 0.9 2.2 0" stroke="#1f3a36" stroke-width="0.5" fill="none" stroke-linecap="round"/>
+  </g>
+  <g fill="#9aa7b0" font-family="Arial, sans-serif" font-weight="700">
+    <text class="z" x="12" y="7" font-size="3">z</text>
+    <text class="z z2" x="13.8" y="4.5" font-size="4">Z</text>
+  </g>
+</svg>
