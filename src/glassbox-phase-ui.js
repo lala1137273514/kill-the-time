@@ -15,9 +15,9 @@
 
 const FEEDBACK = Object.freeze({
   thinking:      { status: "在想怎么干…",     emoji: "💭", petState: "thinking",     terminal: false },
-  capturing:     { status: "看一眼屏幕…",     emoji: "📸", petState: "thinking",     terminal: false },
+  capturing:     { status: "看一眼屏幕…",     emoji: "📸", petState: "sweeping",     terminal: false },
   confirming:    { status: "等你点确认…",     emoji: "⏸️", petState: "attention",    terminal: false },
-  dispatching:   { status: "交给 Claude…",    emoji: "🚀", petState: "working",      terminal: false },
+  dispatching:   { status: "交给 Claude…",    emoji: "🚀", petState: "carrying",     terminal: false },
   running:       { status: "干活中…",         emoji: "⏳", petState: "working",      terminal: false },
   done:          { status: "搞定！",          emoji: "✅", petState: "notification", terminal: true },
   approved:      { status: "批准了",          emoji: "✅", petState: "notification", terminal: true },

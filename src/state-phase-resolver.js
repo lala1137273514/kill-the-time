@@ -14,8 +14,9 @@ const { phaseFeedback } = require("./glassbox-phase-ui");
 const PROTECTED_STATES = new Set([
   // sleep sequence — a transient phase must never wake the pet
   "sleeping", "dozing", "collapsing", "waking", "yawning",
-  // high-priority one-shots the state machine owns
-  "error", "notification", "sweeping", "carrying",
+  // loud one-shots the state machine owns; mid-tier states (sweeping/carrying/
+  // working) are reflection targets the flow may overwrite as it advances.
+  "error", "notification",
 ]);
 
 // resolvePhaseReflection(phase, currentState) -> petState string | null

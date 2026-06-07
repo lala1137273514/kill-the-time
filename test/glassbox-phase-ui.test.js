@@ -14,6 +14,8 @@ const REAL_PET_STATES = new Set([
   "attention",
   "notification",
   "error",
+  "sweeping",
+  "carrying",
 ]);
 
 const NON_TERMINAL = ["thinking", "capturing", "confirming", "dispatching", "running"];
@@ -45,7 +47,8 @@ describe("glassbox-phase-ui phaseFeedback", () => {
 
   it("reflects sensible pet states for the key phases", () => {
     assert.strictEqual(phaseFeedback("thinking").petState, "thinking");
-    assert.strictEqual(phaseFeedback("dispatching").petState, "working");
+    assert.strictEqual(phaseFeedback("capturing").petState, "sweeping");
+    assert.strictEqual(phaseFeedback("dispatching").petState, "carrying");
     assert.strictEqual(phaseFeedback("running").petState, "working");
     assert.strictEqual(phaseFeedback("confirming").petState, "attention");
     assert.strictEqual(phaseFeedback("error").petState, "error");

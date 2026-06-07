@@ -8,9 +8,9 @@ const { PROTECTED_STATES, resolvePhaseReflection } = require("../src/state-phase
 describe("state-phase-resolver resolvePhaseReflection", () => {
   it("reflects mid-flow phases onto the pet when it is idle", () => {
     assert.strictEqual(resolvePhaseReflection("thinking", "idle"), "thinking");
-    assert.strictEqual(resolvePhaseReflection("capturing", "idle"), "thinking");
+    assert.strictEqual(resolvePhaseReflection("capturing", "idle"), "sweeping");
     assert.strictEqual(resolvePhaseReflection("confirming", "idle"), "attention");
-    assert.strictEqual(resolvePhaseReflection("dispatching", "idle"), "working");
+    assert.strictEqual(resolvePhaseReflection("dispatching", "idle"), "carrying");
     assert.strictEqual(resolvePhaseReflection("running", "working"), "working");
   });
 
@@ -31,9 +31,13 @@ describe("state-phase-resolver resolvePhaseReflection", () => {
   });
 
   it("never stomps high-priority machine-owned states", () => {
-    for (const s of ["error", "notification", "sweeping", "carrying"]) {
+    for (const s of ["error", "notification"]) {
       assert.strictEqual(resolvePhaseReflection("thinking", s), null, s);
     }
+    // mid-tier states (sweeping/carrying) are reflection targets now, so a phase
+    // may overwrite them as the flow advances — they are NOT protected.
+    assert.strictEqual(resolvePhaseReflection("running", "carrying"), "working");
+    assert.strictEqual(resolvePhaseReflection("confirming", "sweeping"), "attention");
   });
 
   it("still reflects when current state is unknown / not a string", () => {
