@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: transparent; overflow: hidden; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  #box {
+    margin: 8px;
+    background: rgba(28, 28, 30, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 14px;
+    box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
+    -webkit-app-region: drag;
+  }
+  #row { display: flex; gap: 10px; align-items: stretch; -webkit-app-region: no-drag; }
+  #ta {
+    flex: 1; min-height: 60px; max-height: 150px; resize: none;
+    border: none; outline: none; border-radius: 10px; padding: 10px 12px;
+    font-size: 15px; line-height: 1.5; color: #fff; background: rgba(255, 255, 255, 0.08);
+  }
+  #ta::placeholder { color: rgba(255, 255, 255, 0.38); }
+  #mic {
+    width: 46px; border: none; border-radius: 12px; cursor: pointer; font-size: 20px;
+    background: rgba(255, 255, 255, 0.12); color: #fff; transition: background 120ms;
+  }
+  #mic:hover { background: rgba(255, 255, 255, 0.2); }
+  #mic.rec { background: #ff4d4f; animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.5; } }
+  #status { margin-top: 9px; font-size: 12px; color: rgba(255, 255, 255, 0.55); min-height: 16px; -webkit-app-region: no-drag; }
+  kbd { background: rgba(255, 255, 255, 0.14); border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="box">
+  <div id="row">
+    <textarea id="ta" placeholder="说点什么，或直接打字… 让 agent 去干"></textarea>
+    <button id="mic" title="语音输入">🎙</button>
+  </div>
+  <div id="status"><kbd>Enter</kbd> 执行 · <kbd>Esc</kbd> 关闭 · 点 🎙 说话，文字会填进来可改</div>
+</div>
+<script>
+  const { ipcRenderer } = require("electron");
+  const ta = document.getElementById("ta");
+  const mic = document.getElementById("mic");
+  const statusEl = document.getElementById("status");
+  const DEFAULT_HINT = "Enter 执行 · Esc 关闭 · 点 🎙 说话，文字会填进来可改";
+  function setStatus(t) { statusEl.innerHTML = t; }
+  ta.focus();
+
+  let rec = null, stream = null, chunks = [];
+  async function startRec() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      rec = new MediaRecorder(stream);
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        mic.classList.remove("rec");
+        try {
+          const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+          const buf = await blob.arrayBuffer();
+          setStatus("💭 识别中…（本地 whisper，CPU 要几十秒）");
+          ipcRenderer.send("glassbox-input-clip", { buffer: buf, mime: blob.type || "audio/webm" });
+        } catch (e) { setStatus("录音处理失败"); }
+        finally { if (stream) stream.getTracks().forEach((t) => t.stop()); }
+      };
+      rec.start();
+      mic.classList.add("rec");
+      setStatus("🎙 在听… 再点一下 🎙 结束");
+    } catch (e) { setStatus("麦克风打不开：" + (e && e.message || e)); }
+  }
+  function stopRec() { if (rec && rec.state !== "inactive") rec.stop(); }
+  mic.onclick = () => { (rec && rec.state !== "inactive") ? stopRec() : startRec(); };
+
+  ipcRenderer.on("glassbox-input-transcript", (_e, p) => {
+    if (p && p.error) { setStatus("没听清，再试一次或直接打字"); ta.focus(); return; }
+    const t = (p && p.text || "").trim();
+    if (t) {
+      ta.value = ta.value ? (ta.value.replace(/\s+$/, "") + " " + t) : t;
+      setStatus("✓ 识别完成，可编辑后按 Enter 执行");
+    } else { setStatus("没听清，再试一次"); }
+    ta.focus();
+  });
+
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const t = ta.value.trim();
+      if (!t) return;
+      setStatus("派给 agent 中…");
+      ipcRenderer.send("glassbox-input-submit", { text: t });
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      ipcRenderer.send("glassbox-input-close");
+    }
+  });
+</script>
+</body>
+</html>

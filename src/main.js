@@ -236,6 +236,32 @@ let glassboxListen = null;
 // Glass-box Phase 2 remote-control flow (orchestrate -> capture -> dispatch).
 // Same opt-in flag; null unless enabled.
 let glassboxRemote = null;
+// Glass-box input bar window (Spotlight-style): Ctrl+Space opens it; the user
+// types or voice-fills, sees the recognized text, edits, then Enter dispatches.
+let glassboxInputWin = null;
+
+function closeGlassboxInput() {
+  if (glassboxInputWin && !glassboxInputWin.isDestroyed()) {
+    try { glassboxInputWin.close(); } catch {}
+  }
+  glassboxInputWin = null;
+}
+
+function toggleGlassboxInput() {
+  if (glassboxInputWin && !glassboxInputWin.isDestroyed()) { closeGlassboxInput(); return; }
+  const pathMod = require("path");
+  const w = new BrowserWindow({
+    width: 520, height: 150, frame: false, transparent: true, resizable: false,
+    alwaysOnTop: true, skipTaskbar: true, show: false, fullscreenable: false, minimizable: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
+  });
+  glassboxInputWin = w;
+  w.loadFile(pathMod.join(__dirname, "glassbox-input.html"));
+  w.once("ready-to-show", () => { try { w.center(); w.show(); w.focus(); } catch {} });
+  // Spotlight-style: clicking away dismisses it.
+  w.on("blur", () => closeGlassboxInput());
+  w.on("closed", () => { if (glassboxInputWin === w) glassboxInputWin = null; });
+}
 let suppressTelegramApprovalSidecarSync = 0;
 let hardwareBuddyAdapter = null;
 let hardwareBuddyStatus = null;
@@ -3283,9 +3309,11 @@ if (!gotTheLock) {
       try {
         const { session } = require("electron");
         session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
-          // Grant the microphone only to the pet render window; deny everything
-          // else so enabling voice doesn't loosen permissions app-wide.
-          callback(permission === "media" && !!win && wc === win.webContents);
+          // Grant the microphone only to the pet render window and the input bar;
+          // deny everything else so enabling voice doesn't loosen perms app-wide.
+          const fromPet = !!win && wc === win.webContents;
+          const fromInput = !!glassboxInputWin && !glassboxInputWin.isDestroyed() && wc === glassboxInputWin.webContents;
+          callback(permission === "media" && (fromPet || fromInput));
         });
       } catch (err) {
         sessionLog(`glassbox-voice: permission handler failed: ${err && err.message}`);
@@ -3293,28 +3321,51 @@ if (!gotTheLock) {
       // Default Ctrl+Space (overridable). NOTE: on Windows this collides with
       // the IME language toggle on some setups — if registration fails, set
       // CLAWD_GLASSBOX_HOTKEY to something else.
+      // Ctrl+Space opens the input bar (overridable). NOTE: on Windows this can
+      // collide with the IME language toggle — if it fails, set
+      // CLAWD_GLASSBOX_HOTKEY to something else.
       const accel = process.env.CLAWD_GLASSBOX_HOTKEY || "CommandOrControl+Space";
       try {
-        const ok = globalShortcut.register(accel, () => sendToRenderer("glassbox-record-toggle"));
-        sessionLog(`glassbox-voice: push-to-talk hotkey ${accel} ${ok ? "registered" : "FAILED (conflict? IME?)"}`);
+        const ok = globalShortcut.register(accel, () => toggleGlassboxInput());
+        sessionLog(`glassbox-voice: input-bar hotkey ${accel} ${ok ? "registered" : "FAILED (conflict? IME?)"}`);
       } catch (err) {
         sessionLog(`glassbox-voice: hotkey register threw: ${err && err.message}`);
       }
-      // While the mic is live, register Esc as a cancel hotkey so a mis-trigger
-      // can be aborted without transcribing. Unregister when listening stops so
-      // Esc behaves normally the rest of the time.
-      ipcMain.on("glassbox-listen-state", (_evt, payload) => {
-        const active = !!(payload && payload.active);
+
+      // Input bar IPC: transcribe a recorded clip and echo it back to the bar;
+      // dispatch the (possibly edited) text on submit; close on Esc.
+      const glassboxAsr = require("./glassbox-asr");
+      ipcMain.on("glassbox-input-clip", (evt, payload) => {
+        const wc = evt.sender;
         try {
-          if (active) {
-            globalShortcut.register("Escape", () => sendToRenderer("glassbox-record-cancel"));
-          } else {
-            globalShortcut.unregister("Escape");
-          }
+          const buffer = payload && payload.buffer;
+          if (!buffer) return;
+          const mime = payload && typeof payload.mime === "string" ? payload.mime : "audio/webm";
+          const ext = /wav/i.test(mime) ? "wav" : (/ogg/i.test(mime) ? "ogg" : "webm");
+          const os = require("os"), fsp = require("fs");
+          const file = require("path").join(os.tmpdir(), `clawd-input-${process.pid}-${Date.now()}.${ext}`);
+          fsp.writeFileSync(file, Buffer.from(buffer));
+          Promise.resolve(glassboxAsr.transcribe(file, {}))
+            .then((text) => { if (!wc.isDestroyed()) wc.send("glassbox-input-transcript", { text: text || "" }); })
+            .catch((err) => {
+              sessionLog(`glassbox-input: transcribe failed: ${err && err.message}`);
+              if (!wc.isDestroyed()) wc.send("glassbox-input-transcript", { error: true });
+            })
+            .finally(() => { try { fsp.unlinkSync(file); } catch {} });
         } catch (err) {
-          sessionLog(`glassbox-voice: esc hotkey toggle failed: ${err && err.message}`);
+          sessionLog(`glassbox-input: clip handling failed: ${err && err.message}`);
+          if (!wc.isDestroyed()) wc.send("glassbox-input-transcript", { error: true });
         }
       });
+      ipcMain.on("glassbox-input-submit", (_evt, payload) => {
+        const text = payload && typeof payload.text === "string" ? payload.text.trim() : "";
+        closeGlassboxInput();
+        if (text && glassboxRemote) {
+          Promise.resolve(glassboxRemote.handle(text))
+            .catch((err) => sessionLog(`glassbox-remote: handle failed: ${err && err.message}`));
+        }
+      });
+      ipcMain.on("glassbox-input-close", () => closeGlassboxInput());
     }
     if (shouldOpenSettingsWindowFromArgv(process.argv)) {
       settingsWindowRuntime.open();
