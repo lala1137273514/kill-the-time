@@ -54,15 +54,25 @@ function planDispatch({ window = {}, decision = {}, screenshotPath = "", default
   return { agent, mode, sessionId, cwd, prompt };
 }
 
+// The prompt is fed over stdin (see dispatch), NOT as a CLI arg — long/CJK
+// prompts with quotes would otherwise be mangled. So args carry only safe,
+// short flags. The dispatched run is headless and the user already confirmed
+// it, so claude runs with permissions bypassed; otherwise its first tool use
+// hangs forever on a permission prompt nobody can answer. Overridable via
+// CLAWD_DISPATCH_PERMISSION_MODE (e.g. acceptEdits, default, plan).
+function dispatchPermissionMode() {
+  return process.env.CLAWD_DISPATCH_PERMISSION_MODE || "bypassPermissions";
+}
+
 function buildArgs(plan = {}) {
-  const prompt = plan.prompt;
   if (plan.agent === "codex") {
-    return ["exec", prompt];
+    return ["exec"];
   }
+  const perm = ["--permission-mode", dispatchPermissionMode()];
   if (plan.mode === "resume" && plan.sessionId) {
-    return ["-r", plan.sessionId, "-p", prompt];
+    return ["-r", plan.sessionId, "-p", ...perm];
   }
-  return ["-p", prompt];
+  return ["-p", ...perm];
 }
 
 function defaultSpawn(cmd, args, spawnOpts) {
@@ -84,11 +94,18 @@ function dispatch(plan = {}, opts = {}) {
   const wantOutput = typeof opts.onComplete === "function";
   const spawnOpts = {
     cwd: plan.cwd || undefined,
-    // claude/codex on Windows are .cmd shims; PATH resolution needs a shell.
-    shell: process.platform === "win32",
+    // NO shell: claude ships as a real claude.exe, which libuv resolves on PATH
+    // and which accepts the prompt over stdin. shell:true would route through
+    // cmd.exe, which both mangles long/CJK prompt args AND fails to forward
+    // stdin — so headless runs hung. (A .cmd-shim agent like an npm-installed
+    // codex can't be spawned without a shell on modern Node and will surface via
+    // onError; the user's path is claude.exe.)
+    shell: false,
     windowsHide: true,
     detached: false,
-    stdio: wantOutput ? ["ignore", "pipe", "pipe"] : "ignore",
+    // stdin is always piped so we can feed the prompt over it (avoids shell
+    // arg-escaping). stdout/stderr piped only when a completion callback wants it.
+    stdio: ["pipe", wantOutput ? "pipe" : "ignore", wantOutput ? "pipe" : "ignore"],
     env: opts.env || process.env,
   };
   const child = spawnFn(command, args, spawnOpts);
@@ -96,6 +113,15 @@ function dispatch(plan = {}, opts = {}) {
   // can observe via handle.onError(); progress otherwise arrives through hooks.
   const swallow = () => {};
   if (child && typeof child.on === "function") child.on("error", swallow);
+
+  // Feed the prompt over stdin, then close it so the agent starts.
+  try {
+    if (child && child.stdin && typeof child.stdin.write === "function") {
+      child.stdin.on && child.stdin.on("error", swallow); // ignore EPIPE
+      child.stdin.write(prompt);
+      child.stdin.end();
+    }
+  } catch {}
 
   if (wantOutput) {
     let output = "";
