@@ -75,6 +75,10 @@ describe("glassbox-orchestrator helpers", () => {
     assert.ok(sys.includes("needCapture"));
   });
 
+  it("buildSystemPrompt honors an injected systemPrompt override", () => {
+    assert.strictEqual(buildSystemPrompt({ systemPrompt: "OVERRIDE" }), "OVERRIDE");
+  });
+
   it("buildRequest targets DashScope compatible chat completions with the transcript", () => {
     const { endpoint, payload, headers } = buildRequest(
       "帮我整理当前窗口的内容",
