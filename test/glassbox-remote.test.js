@@ -15,6 +15,7 @@ function makeRemote(over = {}) {
     answers: [],
     confirms: 0,
     onComplete: null,
+    phases: [],
   };
   const deps = {
     orchestrate: over.orchestrate || (async () => ({ action: "chat", reply: "在的" })),
@@ -28,6 +29,7 @@ function makeRemote(over = {}) {
     speak: over.speak || ((t) => calls.spoken.push(t)),
     confirmDispatch: over.confirmDispatch || (async () => { calls.confirms++; return true; }),
     getPending: over.getPending || (() => ({})),
+    onPhase: over.onPhase || ((p) => calls.phases.push(p)),
     defaultCwd: "defaultCwd" in over ? over.defaultCwd : "/home/me",
     log: () => {},
   };
@@ -180,5 +182,107 @@ describe("GlassboxRemote", () => {
     await remote.handle("   ");
     assert.strictEqual(calls.dispatched.length, 0);
     assert.strictEqual(calls.spoken.length, 0);
+  });
+});
+
+describe("GlassboxRemote onPhase (middle-state feedback)", () => {
+  it("emits thinking then chatting for a chat reply", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "chat", reply: "在的" }),
+    });
+    await remote.handle("在吗");
+    assert.deepStrictEqual(calls.phases, ["thinking", "chatting"]);
+  });
+
+  it("emits thinking then approved / denied for permission words", async () => {
+    const a = makeRemote({ orchestrate: async () => ({ action: "approve" }) });
+    await a.remote.handle("批准");
+    assert.deepStrictEqual(a.calls.phases, ["thinking", "approved"]);
+
+    const d = makeRemote({ orchestrate: async () => ({ action: "deny" }) });
+    await d.remote.handle("不批准");
+    assert.deepStrictEqual(d.calls.phases, ["thinking", "denied"]);
+  });
+
+  it("emits thinking then answered for an answer", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "answer", text: "用第二个" }),
+    });
+    await remote.handle("用第二个");
+    assert.deepStrictEqual(calls.phases, ["thinking", "answered"]);
+  });
+
+  it("emits the full dispatch sequence with a screenshot", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "整理", needCapture: true, risk: "read", reply: "好" }),
+    });
+    await remote.handle("整理当前窗口");
+    assert.deepStrictEqual(calls.phases, ["thinking", "capturing", "confirming", "dispatching", "running"]);
+  });
+
+  it("emits the dispatch sequence without a screenshot", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "跑测试", needCapture: false, risk: "read", reply: "好" }),
+    });
+    await remote.handle("跑测试");
+    assert.deepStrictEqual(calls.phases, ["thinking", "confirming", "dispatching", "running"]);
+  });
+
+  it("emits done as the final phase when the run completes", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "整理", needCapture: false, risk: "read", reply: "好" }),
+    });
+    await remote.handle("整理");
+    calls.onComplete({ code: 0, output: "整理完成" });
+    assert.strictEqual(calls.phases[calls.phases.length - 1], "done");
+  });
+
+  it("emits cancelled when confirmation is declined", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "删文件", needCapture: false, risk: "write", reply: "好" }),
+      confirmDispatch: async () => false,
+    });
+    await remote.handle("删文件");
+    assert.deepStrictEqual(calls.phases, ["thinking", "confirming", "cancelled"]);
+  });
+
+  it("emits needs-input (not confirming) when there is no cwd", async () => {
+    const { remote, calls } = makeRemote({
+      getForegroundWindow: async () => ({ title: "Notepad", sessionId: null, cwd: null, agentId: null }),
+      defaultCwd: null,
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "做事", needCapture: false, risk: "read", reply: "好" }),
+    });
+    await remote.handle("做个东西");
+    assert.deepStrictEqual(calls.phases, ["thinking", "needs-input"]);
+  });
+
+  it("emits error when orchestrate throws", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => { throw new Error("boom"); },
+    });
+    await remote.handle("做事");
+    assert.deepStrictEqual(calls.phases, ["thinking", "error"]);
+  });
+
+  it("emits error when the dispatch spawn throws", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "x", needCapture: false, risk: "read", reply: "好" }),
+      dispatchFn: () => { throw new Error("spawn fail"); },
+    });
+    await remote.handle("做事");
+    assert.deepStrictEqual(calls.phases, ["thinking", "confirming", "dispatching", "error"]);
+  });
+
+  it("treats onPhase as optional (no-op when not injected)", async () => {
+    const raw = new GlassboxRemote({
+      orchestrate: async () => ({ action: "chat", reply: "hi" }),
+      getForegroundWindow: async () => null,
+      takeScreenshot: async () => "",
+      dispatchFn: () => ({}),
+      resolvePermission: () => {},
+      speak: () => {},
+      confirmDispatch: async () => true,
+    });
+    await assert.doesNotReject(() => raw.handle("hi"));
   });
 });

@@ -53,11 +53,17 @@ class GlassboxRemote {
     this.getPending = typeof deps.getPending === "function" ? deps.getPending : () => ({});
     this.defaultCwd = deps.defaultCwd || null;
     this.log = typeof deps.log === "function" ? deps.log : () => {};
+    // Semantic phase callback for middle-state feedback (direction 1). The pet /
+    // input bar map these phases to visible state; default no-op keeps it
+    // optional and the branching unit-testable.
+    this.onPhase = typeof deps.onPhase === "function" ? deps.onPhase : () => {};
   }
 
   async handle(transcript) {
     const text = String(transcript || "").trim();
     if (!text) return { action: "none" };
+
+    this.onPhase("thinking");
 
     // Resolve the foreground window first (cheap — no screenshot yet) so the
     // model has context to refine the prompt. Failure is non-fatal: permission
@@ -77,20 +83,25 @@ class GlassboxRemote {
       decision = await this.orchestrate(text, ctx);
     } catch (err) {
       this.log(`glassbox-remote: orchestrate failed: ${err && err.message}`);
+      this.onPhase("error");
       return { action: "error", error: err && err.message };
     }
 
     switch (decision.action) {
       case "approve":
         this.resolvePermission("allow");
+        this.onPhase("approved");
         return decision;
       case "deny":
         this.resolvePermission("deny");
+        this.onPhase("denied");
         return decision;
       case "answer":
         this.onAnswer(decision);
+        this.onPhase("answered");
         return decision;
       case "chat":
+        this.onPhase("chatting");
         if (decision.reply) this.speak(decision.reply);
         return decision;
       case "dispatch":
@@ -105,6 +116,7 @@ class GlassboxRemote {
     // Screenshot only when the task actually references the screen (spec §4-7).
     let screenshotPath = "";
     if (decision.needCapture) {
+      this.onPhase("capturing");
       try {
         screenshotPath = await this.takeScreenshot(window || {});
       } catch (err) {
@@ -124,6 +136,7 @@ class GlassboxRemote {
 
     // Don't guess a directory (spec §6 risk). Ask before we even confirm.
     if (!plan.cwd) {
+      this.onPhase("needs-input");
       this.speak("我不确定在哪个目录跑，帮我指一下");
       return;
     }
@@ -132,21 +145,27 @@ class GlassboxRemote {
     // against a misheard utterance burning a whole agent run (spec §6 risk).
     const recap = summarizeForSpeech(decision.refinedPrompt);
     if (recap) this.speak(`我要让它：${recap}，对吗？`);
+    this.onPhase("confirming");
     const ok = await this.confirmDispatch(decision);
     if (!ok) {
+      this.onPhase("cancelled");
       this.speak("好，取消了");
       return;
     }
 
     try {
+      this.onPhase("dispatching");
       this.dispatchFn(plan, {
         onComplete: (result) => {
           const summary = summarizeForSpeech(lastMeaningfulLine(result && result.output));
           this.speak(summary ? `搞定，${summary}` : "搞定了，结果在终端里");
+          this.onPhase("done");
         },
       });
+      this.onPhase("running");
     } catch (err) {
       this.log(`glassbox-remote: dispatch failed: ${err && err.message}`);
+      this.onPhase("error");
       this.speak("派活没成功，你看下终端");
       return;
     }
