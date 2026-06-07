@@ -3406,26 +3406,38 @@ if (!gotTheLock) {
       // One-key Demo mode (Ctrl+Shift+D): a fully synthetic showcase of the
       // glass-box flow for judges — drives the same pet + bar + TTS as a real
       // run but touches no agent/mic/key. Press again to cancel.
+      const runGlassboxDemo = (opts = {}) => {
+        if (glassboxDemoRunning) { glassboxDemoCancel = true; return; }
+        glassboxDemoCancel = false;
+        glassboxDemoRunning = true;
+        const { runDemo } = require("./glassbox-demo");
+        Promise.resolve(runDemo({
+          emitPhase: (p) => relayGlassboxPhase(p),   // drives the on-pet bubble + pet
+          speak: (t) => { try { glassboxVoice && glassboxVoice.speak(t); } catch {} },
+          isCancelled: () => glassboxDemoCancel,
+        })).then((res) => {
+          // On cancel no terminal phase fires, so hide the bubble explicitly.
+          if (!res || !res.completed) { try { _glassboxBubble && _glassboxBubble.hide(); } catch {} }
+        }).catch((err) => sessionLog(`glassbox-demo: ${err && err.message}`))
+          .finally(() => {
+            glassboxDemoRunning = false;
+            // Booth / kiosk / self-verification: replay the whole flow on a loop.
+            if (opts.loop && process.env.CLAWD_GLASSBOX_DEMO === "1") {
+              setTimeout(() => runGlassboxDemo({ loop: true }), 2500);
+            }
+          });
+      };
       try {
         const demoAccel = "CommandOrControl+Shift+D";
-        const okDemo = globalShortcut.register(demoAccel, () => {
-          if (glassboxDemoRunning) { glassboxDemoCancel = true; return; }
-          glassboxDemoCancel = false;
-          glassboxDemoRunning = true;
-          const { runDemo } = require("./glassbox-demo");
-          Promise.resolve(runDemo({
-            emitPhase: (p) => relayGlassboxPhase(p),   // drives the on-pet bubble + pet
-            speak: (t) => { try { glassboxVoice && glassboxVoice.speak(t); } catch {} },
-            isCancelled: () => glassboxDemoCancel,
-          })).then((res) => {
-            // On cancel no terminal phase fires, so hide the bubble explicitly.
-            if (!res || !res.completed) { try { _glassboxBubble && _glassboxBubble.hide(); } catch {} }
-          }).catch((err) => sessionLog(`glassbox-demo: ${err && err.message}`))
-            .finally(() => { glassboxDemoRunning = false; });
-        });
+        const okDemo = globalShortcut.register(demoAccel, () => runGlassboxDemo());
         sessionLog(`glassbox-voice: demo hotkey ${demoAccel} ${okDemo ? "registered" : "FAILED"}`);
       } catch (err) {
         sessionLog(`glassbox-voice: demo hotkey threw: ${err && err.message}`);
+      }
+      // Auto-demo (booth / kiosk / verification): replays the full flow on a loop
+      // when CLAWD_GLASSBOX_DEMO=1, so the liveliness shows without any input.
+      if (process.env.CLAWD_GLASSBOX_DEMO === "1") {
+        setTimeout(() => runGlassboxDemo({ loop: true }), 3000);
       }
 
       // Input bar IPC: transcribe a recorded clip and echo it back to the bar;
