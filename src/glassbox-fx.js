@@ -15,8 +15,13 @@ const isMac = process.platform === "darwin";
 
 // Centered on the pet's center, clamped to the work area. Pure.
 function computeFxBounds({ petBounds, workArea, width, height, margin = MARGIN }) {
-  const cx = petBounds.x + petBounds.width / 2;
-  const cy = petBounds.y + petBounds.height / 2;
+  // Center on the pet's VISIBLE portion so the burst stays on an edge-docked pet.
+  const visLeft = Math.max(petBounds.x, workArea.x);
+  const visRight = Math.min(petBounds.x + petBounds.width, workArea.x + workArea.width);
+  const visTop = Math.max(petBounds.y, workArea.y);
+  const visBottom = Math.min(petBounds.y + petBounds.height, workArea.y + workArea.height);
+  const cx = (visRight > visLeft ? (visLeft + visRight) / 2 : petBounds.x + petBounds.width / 2);
+  const cy = (visBottom > visTop ? (visTop + visBottom) / 2 : petBounds.y + petBounds.height / 2);
   let x = Math.round(cx - width / 2);
   let y = Math.round(cy - height / 2);
   x = Math.max(workArea.x + margin, Math.min(x, workArea.x + workArea.width - width - margin));

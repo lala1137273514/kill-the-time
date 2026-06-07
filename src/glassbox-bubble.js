@@ -20,7 +20,11 @@ const isMac = process.platform === "darwin";
 // Centered above the pet; flips below when there's no room; clamped to the work
 // area. Pure so it's unit-tested without Electron.
 function computeGlassboxBubbleBounds({ petBounds, workArea, width, height, gap = GAP, margin = MARGIN }) {
-  const cx = petBounds.x + petBounds.width / 2;
+  // Center on the pet's VISIBLE portion (clipped to the work area) so an
+  // edge-docked / half-off-screen pet still gets the bubble by its visible part.
+  const visLeft = Math.max(petBounds.x, workArea.x);
+  const visRight = Math.min(petBounds.x + petBounds.width, workArea.x + workArea.width);
+  const cx = (visRight > visLeft ? (visLeft + visRight) / 2 : petBounds.x + petBounds.width / 2);
   let x = Math.round(cx - width / 2);
   x = Math.max(workArea.x + margin, Math.min(x, workArea.x + workArea.width - width - margin));
   const aboveY = petBounds.y - gap - height;
