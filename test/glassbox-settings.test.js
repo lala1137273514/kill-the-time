@@ -15,6 +15,7 @@ describe("glassbox-settings defaults", () => {
       ttsVoice: "",
       whisperModel: "",
       permissionMode: "",
+      confirmMode: "always",
       systemPrompt: "",
     });
   });
@@ -42,6 +43,7 @@ describe("glassbox-settings normalizeGlassboxSettings", () => {
       ttsVoice: "Ethan",
       whisperModel: "small",
       permissionMode: "acceptEdits",
+      confirmMode: "writes-only",
       systemPrompt: "你是新的编排脑",
     }, { ...DEFAULT_GLASSBOX_SETTINGS });
     assert.strictEqual(v.voiceEnabled, true);
@@ -51,6 +53,7 @@ describe("glassbox-settings normalizeGlassboxSettings", () => {
     assert.strictEqual(v.ttsVoice, "Ethan");
     assert.strictEqual(v.whisperModel, "small");
     assert.strictEqual(v.permissionMode, "acceptEdits");
+    assert.strictEqual(v.confirmMode, "writes-only");
     assert.strictEqual(v.systemPrompt, "你是新的编排脑");
   });
 
@@ -62,6 +65,7 @@ describe("glassbox-settings normalizeGlassboxSettings", () => {
       orchestratorModel: null,
       ttsVoice: {},
       permissionMode: "auto",   // not a valid mode
+      confirmMode: "nope",      // not a valid mode
       systemPrompt: 123,
     }, { ...DEFAULT_GLASSBOX_SETTINGS });
     assert.strictEqual(v.voiceEnabled, false);
@@ -70,6 +74,7 @@ describe("glassbox-settings normalizeGlassboxSettings", () => {
     assert.strictEqual(v.orchestratorModel, "");
     assert.strictEqual(v.ttsVoice, "");
     assert.strictEqual(v.permissionMode, "");
+    assert.strictEqual(v.confirmMode, "always");
     assert.strictEqual(v.systemPrompt, "");
   });
 

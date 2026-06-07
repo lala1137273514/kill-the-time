@@ -275,6 +275,7 @@ function toggleGlassboxInput() {
 const { phaseFeedback: _glassboxPhaseFeedback } = require("./glassbox-phase-ui");
 const { resolvePhaseReflection: _resolvePhaseReflection } = require("./state-phase-resolver");
 const { speechReflection: _speechReflection } = require("./glassbox-speech");
+const { needsConfirmation: _needsConfirmation } = require("./glassbox-router");
 let glassboxFlowActive = false;
 let glassboxPhaseCloseTimer = null;
 let glassboxDemoRunning = false;
@@ -1451,6 +1452,13 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
       }),
       defaultCwd: null, // don't guess (spec §6); ask when no window/session cwd
       onPhase: (phase) => relayGlassboxPhase(phase),
+      shouldConfirm: (decision) => {
+        // Direction 2b: confirm policy from settings (default "always").
+        const snap = (_settingsController && typeof _settingsController.getSnapshot === "function")
+          ? _settingsController.getSnapshot() : null;
+        const gb = (snap && snap.glassbox) || {};
+        return _needsConfirmation(decision, { confirmMode: gb.confirmMode });
+      },
       log: (msg) => sessionLog(msg),
     });
     sessionLog("glassbox-remote: Phase 2 remote control enabled");

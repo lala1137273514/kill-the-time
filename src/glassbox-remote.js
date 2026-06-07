@@ -57,6 +57,10 @@ class GlassboxRemote {
     // input bar map these phases to visible state; default no-op keeps it
     // optional and the branching unit-testable.
     this.onPhase = typeof deps.onPhase === "function" ? deps.onPhase : () => {};
+    // Dispatch confirm policy (direction 2b). Default: always confirm. main.js
+    // injects a policy-driven decision (glassbox-router) so e.g. read-only tasks
+    // can skip the dialog while writes still confirm.
+    this.shouldConfirm = typeof deps.shouldConfirm === "function" ? deps.shouldConfirm : () => true;
   }
 
   async handle(transcript) {
@@ -141,16 +145,19 @@ class GlassboxRemote {
       return;
     }
 
-    // Recap out loud, then confirm before every dispatch — cheap insurance
-    // against a misheard utterance burning a whole agent run (spec §6 risk).
-    const recap = summarizeForSpeech(decision.refinedPrompt);
-    if (recap) this.speak(`我要让它：${recap}，对吗？`);
-    this.onPhase("confirming");
-    const ok = await this.confirmDispatch(decision);
-    if (!ok) {
-      this.onPhase("cancelled");
-      this.speak("好，取消了");
-      return;
+    // Confirm policy (direction 2b): by default recap + confirm before every
+    // dispatch (cheap insurance against a misheard run, spec §6). A policy may
+    // let safe read-only tasks skip the dialog for a faster voice flow.
+    if (this.shouldConfirm(decision)) {
+      const recap = summarizeForSpeech(decision.refinedPrompt);
+      if (recap) this.speak(`我要让它：${recap}，对吗？`);
+      this.onPhase("confirming");
+      const ok = await this.confirmDispatch(decision);
+      if (!ok) {
+        this.onPhase("cancelled");
+        this.speak("好，取消了");
+        return;
+      }
     }
 
     try {

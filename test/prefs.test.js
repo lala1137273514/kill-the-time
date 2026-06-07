@@ -1261,6 +1261,7 @@ describe("prefs glassbox settings (v9)", () => {
       ttsVoice: "",
       whisperModel: "",
       permissionMode: "",
+      confirmMode: "always",
       systemPrompt: "",
     });
   });

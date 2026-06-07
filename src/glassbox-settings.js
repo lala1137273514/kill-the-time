@@ -10,6 +10,7 @@
 // so the Bailian API key stays in env (BAILIAN_API_KEY), per AGENTS.md.
 
 const PERMISSION_MODES = Object.freeze(["", "bypassPermissions", "acceptEdits", "plan", "default"]);
+const CONFIRM_MODES = Object.freeze(["always", "writes-only"]);
 
 const DEFAULT_GLASSBOX_SETTINGS = Object.freeze({
   voiceEnabled: false,    // master switch (mirrors CLAWD_GLASSBOX_VOICE)
@@ -19,6 +20,7 @@ const DEFAULT_GLASSBOX_SETTINGS = Object.freeze({
   ttsVoice: "",           // "" = built-in default (Cherry)
   whisperModel: "",       // "" = CLAWD_WHISPER_MODEL / base
   permissionMode: "",     // "" = CLAWD_DISPATCH_PERMISSION_MODE / bypassPermissions
+  confirmMode: "always",  // "always" | "writes-only" — dispatch confirm policy (2b)
   systemPrompt: "",       // "" = the externalized prompt file (glassbox-prompts)
 });
 
@@ -43,8 +45,9 @@ function normalizeGlassboxSettings(value, defaultsValue) {
     ttsVoice: _str(value.ttsVoice),
     whisperModel: _str(value.whisperModel),
     permissionMode: PERMISSION_MODES.includes(value.permissionMode) ? value.permissionMode : base.permissionMode,
+    confirmMode: CONFIRM_MODES.includes(value.confirmMode) ? value.confirmMode : base.confirmMode,
     systemPrompt: _str(value.systemPrompt),
   };
 }
 
-module.exports = { DEFAULT_GLASSBOX_SETTINGS, PERMISSION_MODES, normalizeGlassboxSettings };
+module.exports = { DEFAULT_GLASSBOX_SETTINGS, PERMISSION_MODES, CONFIRM_MODES, normalizeGlassboxSettings };

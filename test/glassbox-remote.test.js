@@ -30,6 +30,7 @@ function makeRemote(over = {}) {
     confirmDispatch: over.confirmDispatch || (async () => { calls.confirms++; return true; }),
     getPending: over.getPending || (() => ({})),
     onPhase: over.onPhase || ((p) => calls.phases.push(p)),
+    shouldConfirm: over.shouldConfirm,
     defaultCwd: "defaultCwd" in over ? over.defaultCwd : "/home/me",
     log: () => {},
   };
@@ -284,5 +285,38 @@ describe("GlassboxRemote onPhase (middle-state feedback)", () => {
       confirmDispatch: async () => true,
     });
     await assert.doesNotReject(() => raw.handle("hi"));
+  });
+});
+
+describe("GlassboxRemote shouldConfirm (dispatch routing policy)", () => {
+  it("skips the confirm dialog and the recap when shouldConfirm returns false", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "读 package.json", needCapture: false, risk: "read", reply: "好" }),
+      shouldConfirm: () => false,
+    });
+    await remote.handle("读一下 package.json");
+    assert.strictEqual(calls.confirms, 0);
+    assert.strictEqual(calls.dispatched.length, 1);
+    assert.deepStrictEqual(calls.phases, ["thinking", "dispatching", "running"]);
+    assert.ok(!calls.spoken.some((t) => /对吗/.test(t)));
+  });
+
+  it("still confirms (with recap) when shouldConfirm returns true", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "删文件", needCapture: false, risk: "write", reply: "好" }),
+      shouldConfirm: () => true,
+    });
+    await remote.handle("删文件");
+    assert.strictEqual(calls.confirms, 1);
+    assert.ok(calls.phases.includes("confirming"));
+    assert.ok(calls.spoken.some((t) => /对吗/.test(t)));
+  });
+
+  it("defaults to confirming when shouldConfirm is not injected", async () => {
+    const { remote, calls } = makeRemote({
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "x", needCapture: false, risk: "read", reply: "好" }),
+    });
+    await remote.handle("做事");
+    assert.strictEqual(calls.confirms, 1);
   });
 });
