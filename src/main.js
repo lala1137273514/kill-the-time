@@ -232,6 +232,8 @@ let telegramDirectSend = null;
 // CLAWD_GLASSBOX_VOICE=1; stays null otherwise so normal runs are untouched.
 let glassboxVoice = null;
 let glassboxSupervisor = null;
+let glassboxWakeWin = null;
+let glassboxWakeword = null;
 // Glass-box push-to-talk listener (same opt-in flag). Null unless enabled.
 let glassboxListen = null;
 // Glass-box Phase 2 remote-control flow (orchestrate -> capture -> dispatch).
@@ -304,6 +306,37 @@ function relayGlassboxPhase(phase) {
   // If the input bar happens to still be open, mirror the step there too.
   if (glassboxInputWin && !glassboxInputWin.isDestroyed()) {
     try { glassboxInputWin.webContents.send("glassbox-phase", payload); } catch {}
+  }
+}
+
+// Start/stop the hidden always-on wake-word listener window ("hey, cc").
+// Default off; toggled by settings.glassbox.wakeWordEnabled. The window owns the
+// mic; main transcribes the gated clips via glassboxWakeword (WakeWordDetector).
+function setWakeListening(on) {
+  if (!glassboxWakeword) return;
+  if (on) {
+    glassboxWakeword.start();
+    if (!glassboxWakeWin || glassboxWakeWin.isDestroyed()) {
+      glassboxWakeWin = new BrowserWindow({
+        width: 1, height: 1, show: false, frame: false, transparent: true,
+        skipTaskbar: true, focusable: false,
+        webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
+      });
+      glassboxWakeWin.loadFile(require("path").join(__dirname, "glassbox-wake-listener.html"));
+      glassboxWakeWin.webContents.once("did-finish-load", () => {
+        try { glassboxWakeWin.webContents.send("glassbox-wake-listen", true); } catch {}
+      });
+      glassboxWakeWin.on("closed", () => { glassboxWakeWin = null; });
+    } else {
+      try { glassboxWakeWin.webContents.send("glassbox-wake-listen", true); } catch {}
+    }
+  } else {
+    glassboxWakeword.stop();
+    if (glassboxWakeWin && !glassboxWakeWin.isDestroyed()) {
+      try { glassboxWakeWin.webContents.send("glassbox-wake-listen", false); } catch {}
+      try { glassboxWakeWin.close(); } catch {}
+    }
+    glassboxWakeWin = null;
   }
 }
 let suppressTelegramApprovalSidecarSync = 0;
@@ -1343,6 +1376,21 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
     // utterance is copied to the clipboard (clawd has no stdin into the agent).
     const { GlassboxListener } = require("./glassbox-listen");
     const glassboxAsr = require("./glassbox-asr");
+    // Wake word "hey, cc": energy-gate + this same local whisper. Default OFF;
+    // a hit just opens the Spotlight input bar (never auto-dispatches).
+    const { WakeWordDetector } = require("./glassbox-wakeword");
+    glassboxWakeword = new WakeWordDetector({
+      transcribe: (wavPath) => glassboxAsr.transcribe(wavPath, { model: _glassboxCfg().whisperModel }),
+      onWake: () => {
+        try {
+          sessionLog("glassbox-wake: heard 'hey, cc' -> opening input bar");
+          if (!(glassboxInputWin && !glassboxInputWin.isDestroyed())) toggleGlassboxInput();
+        } catch (e) { sessionLog(`glassbox-wake: onWake failed: ${e && e.message}`); }
+      },
+      cooldownMs: 3000,
+      now: () => Date.now(),
+      log: (m) => sessionLog(m),
+    });
     glassboxListen = new GlassboxListener({
       transcribe: (wavPath) => glassboxAsr.transcribe(wavPath, { model: _glassboxCfg().whisperModel }),
       getPending: () => ({
@@ -3413,7 +3461,8 @@ if (!gotTheLock) {
           // deny everything else so enabling voice doesn't loosen perms app-wide.
           const fromPet = !!win && wc === win.webContents;
           const fromInput = !!glassboxInputWin && !glassboxInputWin.isDestroyed() && wc === glassboxInputWin.webContents;
-          callback(permission === "media" && (fromPet || fromInput));
+          const fromWake = !!glassboxWakeWin && !glassboxWakeWin.isDestroyed() && wc === glassboxWakeWin.webContents;
+          callback(permission === "media" && (fromPet || fromInput || fromWake));
         });
       } catch (err) {
         sessionLog(`glassbox-voice: permission handler failed: ${err && err.message}`);
@@ -3468,6 +3517,41 @@ if (!gotTheLock) {
       if (process.env.CLAWD_GLASSBOX_DEMO === "1") {
         setTimeout(() => runGlassboxDemo({ loop: true }), 3000);
       }
+
+      // Wake word "hey, cc": the hidden listener window ships gated clips here;
+      // transcribe (local whisper) + match -> open the bar. Default OFF.
+      ipcMain.on("glassbox-wake-clip", (_evt, payload) => {
+        if (!glassboxWakeword || !glassboxWakeword.isListening()) return;
+        try {
+          const buffer = payload && payload.buffer;
+          if (!buffer) return;
+          const mime = payload && typeof payload.mime === "string" ? payload.mime : "audio/webm";
+          const ext = /wav/i.test(mime) ? "wav" : (/ogg/i.test(mime) ? "ogg" : "webm");
+          const os = require("os"), fsp = require("fs");
+          const file = require("path").join(os.tmpdir(), `clawd-wake-${process.pid}-${Date.now()}.${ext}`);
+          fsp.writeFileSync(file, Buffer.from(buffer));
+          Promise.resolve(glassboxWakeword.feedClip(file))
+            .catch((err) => sessionLog(`glassbox-wake: feedClip failed: ${err && err.message}`))
+            .finally(() => { try { fsp.unlinkSync(file); } catch {} });
+        } catch (err) { sessionLog(`glassbox-wake: clip handling failed: ${err && err.message}`); }
+      });
+      ipcMain.on("glassbox-wake-error", (_e, msg) => sessionLog(`glassbox-wake: renderer error: ${msg}`));
+      // Honor the persisted setting at startup; live-toggle on settings change.
+      try {
+        const snap0 = (_settingsController && typeof _settingsController.getSnapshot === "function") ? _settingsController.getSnapshot() : null;
+        if (snap0 && snap0.glassbox && snap0.glassbox.wakeWordEnabled) setWakeListening(true);
+      } catch {}
+      try {
+        if (typeof _settingsController.subscribe === "function") {
+          _settingsController.subscribe((evt) => {
+            const changes = evt && evt.changes;
+            if (changes && Object.prototype.hasOwnProperty.call(changes, "glassbox")) {
+              const gb = (_settingsController.getSnapshot().glassbox) || {};
+              setWakeListening(!!gb.wakeWordEnabled);
+            }
+          });
+        }
+      } catch {}
 
       // Input bar IPC: transcribe a recorded clip and echo it back to the bar;
       // dispatch the (possibly edited) text on submit; close on Esc.
@@ -3553,6 +3637,7 @@ if (!gotTheLock) {
     releasePowerSaveBlocker();
     flushRuntimeStateToPrefs();
     globalShortcut.unregisterAll();
+    try { if (glassboxWakeWin && !glassboxWakeWin.isDestroyed()) glassboxWakeWin.close(); } catch {}
     void settingsSizePreviewSession.cleanup();
     stopTelegramApprovalSidecar();
     if (typeof unsubscribeHardwareBuddySettings === "function") {

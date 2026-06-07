@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body>
+<script>
+  // Hidden always-on wake-word listener for "hey, cc" (engine = energy-gate +
+  // the existing local faster-whisper). Owns getUserMedia + an AnalyserNode RMS
+  // loop; the PURE createWakeCapture decides WHEN speech ended, then we ship the
+  // recent audio to main for transcription + matching. Default off; main starts
+  // it only when settings.glassbox.wakeWordEnabled is true.
+  const { ipcRenderer } = require("electron");
+  const { createWakeCapture } = require("./glassbox-wake-capture");
+
+  let stream = null, ac = null, analyser = null, raf = 0, rec = null;
+  let chunks = [];                 // rolling recent audio chunks (~4s)
+  const KEEP = 16;                 // 16 * 250ms
+  let listening = false;
+
+  const cap = createWakeCapture({
+    rmsThreshold: 0.045,
+    trailingSilenceMs: 600,
+    maxWindowMs: 2500,
+    cooldownMs: 3000,
+    onClip: () => sendClip(),       // gate closed after speech -> ship the clip
+  });
+
+  async function start() {
+    if (listening) return;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      ipcRenderer.send("glassbox-wake-error", String((e && e.message) || e));
+      return;
+    }
+    listening = true;
+    ac = new AudioContext();
+    const src = ac.createMediaStreamSource(stream);
+    analyser = ac.createAnalyser();
+    analyser.fftSize = 1024;
+    src.connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    rec = new MediaRecorder(stream);
+    rec.ondataavailable = (e) => {
+      if (e.data && e.data.size) { chunks.push(e.data); if (chunks.length > KEEP) chunks.shift(); }
+    };
+    rec.start(250); // 250ms timeslices
+    const loop = () => {
+      if (!listening) return;
+      analyser.getFloatTimeDomainData(buf);
+      let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+      cap.feed({ rms: Math.sqrt(s / buf.length), atMs: performance.now() });
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
+  }
+
+  function sendClip() {
+    if (!chunks.length) return;
+    const blob = new Blob(chunks.slice(), { type: (rec && rec.mimeType) || "audio/webm" });
+    blob.arrayBuffer().then((ab) => {
+      ipcRenderer.send("glassbox-wake-clip", { buffer: ab, mime: blob.type || "audio/webm" });
+    }).catch(() => {});
+  }
+
+  function stop() {
+    listening = false;
+    try { cancelAnimationFrame(raf); } catch {}
+    try { if (rec && rec.state !== "inactive") rec.stop(); } catch {}
+    try { if (ac) ac.close(); } catch {}
+    try { if (stream) stream.getTracks().forEach((t) => t.stop()); } catch {}
+    chunks = [];
+    cap.reset();
+  }
+
+  ipcRenderer.on("glassbox-wake-listen", (_e, on) => { if (on) start(); else stop(); });
+</script>
+</body>
+</html>
