@@ -67,6 +67,7 @@ function buildRequest(transcript, ctx = {}, opts = {}) {
     model: resolveModel(opts),
     messages: [
       { role: "system", content: buildSystemPrompt(opts) },
+      ...(Array.isArray(opts.history) ? opts.history : []),
       { role: "user", content: buildUserPrompt(transcript, ctx) },
     ],
     temperature: Number.isFinite(opts.temperature) ? opts.temperature : 0.2,

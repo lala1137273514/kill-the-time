@@ -1556,13 +1556,15 @@ if (glassboxEnabled) {
 
     const { GlassboxRemote } = require("./glassbox-remote");
     glassboxRemote = new GlassboxRemote({
-      orchestrate: (text, octx) => {
+      orchestrate: (text, octx, ropts) => {
         // Direction 4: settings override env/built-ins when set; empty = unset.
         const snap = (_settingsController && typeof _settingsController.getSnapshot === "function")
           ? _settingsController.getSnapshot() : null;
         const gb = (snap && snap.glassbox) || {};
         const oopts = { model: _glassboxCfg().orchestratorModel };
         if (gb.systemPrompt) oopts.systemPrompt = gb.systemPrompt;
+        // Multi-turn: forward the conversation history the remote passes in.
+        if (ropts && Array.isArray(ropts.history)) oopts.history = ropts.history;
         return glassboxOrchestrator.orchestrate(text, octx, oopts);
       },
       getForegroundWindow: resolveForegroundWindow,

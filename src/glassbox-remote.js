@@ -18,6 +18,7 @@
 // to onAnswer, never faked; a dispatch only ever spawns a NEW run.
 
 const { planDispatch } = require("./glassbox-dispatch");
+const { createConversation } = require("./glassbox-conversation");
 
 // Collapse a long prompt / agent output into one short spoken line. Used for the
 // pre-dispatch recap ("我要让它：… 对吗？") and the completion summary — the small
@@ -61,6 +62,9 @@ class GlassboxRemote {
     // injects a policy-driven decision (glassbox-router) so e.g. read-only tasks
     // can skip the dialog while writes still confirm.
     this.shouldConfirm = typeof deps.shouldConfirm === "function" ? deps.shouldConfirm : () => true;
+    // Multi-turn voice chat context (功能3). Injectable so main shares one buffer;
+    // defaults to its own so the unit tests work standalone.
+    this.conversation = deps.conversation || createConversation({});
   }
 
   async handle(transcript) {
@@ -68,6 +72,7 @@ class GlassboxRemote {
     if (!text) return { action: "none" };
 
     this.onPhase("thinking");
+    this.conversation.appendUser(text);
 
     // Resolve the foreground window first (cheap — no screenshot yet) so the
     // model has context to refine the prompt. Failure is non-fatal: permission
@@ -84,7 +89,7 @@ class GlassboxRemote {
 
     let decision;
     try {
-      decision = await this.orchestrate(text, ctx);
+      decision = await this.orchestrate(text, ctx, { history: this.conversation.messages() });
     } catch (err) {
       this.log(`glassbox-remote: orchestrate failed: ${err && err.message}`);
       this.onPhase("error");
@@ -107,7 +112,7 @@ class GlassboxRemote {
         return decision;
       case "chat":
         this.onPhase("chatting");
-        if (decision.reply) this.speak(decision.reply);
+        if (decision.reply) { this.conversation.appendAssistant(decision.reply); this.speak(decision.reply); }
         return decision;
       case "dispatch":
         await this._dispatch(decision, window);
