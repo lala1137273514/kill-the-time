@@ -235,6 +235,7 @@ let telegramDirectSend = null;
 // CLAWD_GLASSBOX_VOICE=1; stays null otherwise so normal runs are untouched.
 let glassboxVoice = null;
 let glassboxSupervisor = null;
+let glassboxCommentary = null;
 let glassboxWakeWin = null;
 let glassboxWakeword = null;
 // Glass-box push-to-talk listener (same opt-in flag). Null unless enabled.
@@ -1394,6 +1395,13 @@ if (glassboxEnabled) {
     });
     sessionLog("glassbox-supervisor: enabled");
 
+    // Deep supervisor: narrate what the dispatched run is actually doing,
+    // line-by-line (throttled, privacy-safe — fixed phrases, never raw output).
+    // Wired into dispatchFn below.
+    const { createCommentary } = require("./glassbox-commentary");
+    glassboxCommentary = createCommentary({});
+    sessionLog("glassbox-commentary: enabled");
+
     // D3 push-to-talk listener: local-whisper transcribe -> intent -> act.
     // approve/deny resolves the newest pending permission (real); a task/answer
     // utterance is copied to the clipboard (clawd has no stdin into the agent).
@@ -1514,7 +1522,50 @@ if (glassboxEnabled) {
       },
       getForegroundWindow: resolveForegroundWindow,
       takeScreenshot: captureScreenshot,
-      dispatchFn: (plan, o) => glassboxDispatch.dispatch({ ...plan, permissionMode: _glassboxCfg().permissionMode }, { onComplete: o && o.onComplete }),
+      dispatchFn: (plan, o) => {
+        // Narrate the dispatched run line-by-line. Best-effort: a narration
+        // error must never break the dispatch (glue isolates; core is pure).
+        try { glassboxCommentary && glassboxCommentary.reset(); } catch {}
+        return glassboxDispatch.dispatch(
+          { ...plan, permissionMode: _glassboxCfg().permissionMode },
+          {
+            onLine: (line) => {
+              if (!glassboxCommentary) return;
+              let ev = null;
+              try { ev = glassboxCommentary.observe(line); } catch {}
+              if (ev) {
+                try { glassboxVoice && glassboxVoice.speak(ev.say); } catch {}
+                try {
+                  _glassboxBubble && _glassboxBubble.showPhase({
+                    emoji: ev.kind === "done" ? "✅" : ev.kind === "error" ? "⚠️" : "🔧",
+                    status: ev.say,
+                    terminal: false,
+                  });
+                } catch {}
+              }
+            },
+            onComplete: (result) => {
+              // Mid-run milestones are spoken by commentary; the FINAL spoken
+              // summary stays owned by glassbox-remote.onComplete (forwarded
+              // below) to avoid double speech — finish() only updates the bubble.
+              if (glassboxCommentary) {
+                let ev = null;
+                try { ev = glassboxCommentary.finish({ code: result && result.code }); } catch {}
+                if (ev) {
+                  try {
+                    _glassboxBubble && _glassboxBubble.showPhase({
+                      emoji: ev.kind === "done" ? "✅" : "⚠️",
+                      status: ev.say,
+                      terminal: true,
+                    });
+                  } catch {}
+                }
+              }
+              if (o && typeof o.onComplete === "function") o.onComplete(result);
+            },
+          }
+        );
+      },
       getSessionIdle: (sid) => {
         const snap = (_state && typeof _state.buildSessionSnapshot === "function")
           ? _state.buildSessionSnapshot() : { sessions: [] };

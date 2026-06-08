@@ -92,7 +92,8 @@ function dispatch(plan = {}, opts = {}) {
   const spawnFn = opts.spawnFn || defaultSpawn;
   // Capture stdout only when a completion callback wants it (for the spoken
   // result summary). Otherwise stay fully detached.
-  const wantOutput = typeof opts.onComplete === "function";
+  const wantLines = typeof opts.onLine === "function";
+  const wantOutput = typeof opts.onComplete === "function" || wantLines;
   const spawnOpts = {
     cwd: plan.cwd || undefined,
     // NO shell: claude ships as a real claude.exe, which libuv resolves on PATH
@@ -126,15 +127,44 @@ function dispatch(plan = {}, opts = {}) {
 
   if (wantOutput) {
     let output = "";
+    // Per-stream line buffer: split chunks on \n, emit complete lines via onLine,
+    // keep the trailing partial until the next chunk. Best-effort: an onLine throw
+    // must not stall the pipe (the line core is pure/let-it-crash; the glue here
+    // isolates so one bad line can't kill the run).
+    const makeSplitter = () => {
+      let buf = "";
+      return {
+        push(chunk) {
+          buf += String(chunk);
+          let nl;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl).replace(/\r$/, "");
+            buf = buf.slice(nl + 1);
+            if (wantLines && line) { try { opts.onLine(line); } catch {} }
+          }
+        },
+        flush() {
+          const line = buf.replace(/\r$/, "");
+          buf = "";
+          if (wantLines && line) { try { opts.onLine(line); } catch {} }
+        },
+      };
+    };
+    const outSplit = makeSplitter();
+    const errSplit = makeSplitter();
     if (child && child.stdout && typeof child.stdout.on === "function") {
-      child.stdout.on("data", (d) => { output += String(d); });
+      child.stdout.on("data", (d) => { output += String(d); outSplit.push(d); });
     }
     if (child && child.stderr && typeof child.stderr.on === "function") {
-      child.stderr.on("data", () => {}); // drain so the pipe never stalls
+      child.stderr.on("data", (d) => { errSplit.push(d); }); // drain + narrate
     }
     if (child && typeof child.on === "function") {
       child.on("close", (code) => {
-        try { opts.onComplete({ code, output: output.trim() }); } catch {}
+        try { outSplit.flush(); } catch {}
+        try { errSplit.flush(); } catch {}
+        if (typeof opts.onComplete === "function") {
+          try { opts.onComplete({ code, output: output.trim() }); } catch {}
+        }
       });
     }
   }
