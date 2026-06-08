@@ -298,6 +298,7 @@ let glassboxNarrator = null;
 let _glassboxCard = null;
 const _initGlassboxHud = require("./glassbox-hud");
 let _glassboxHud = null;
+const _visibleMargins = require("./visible-margins");
 const _createQuota = require("./quota").createQuota;
 const _initQuotaPopup = require("./quota-popup");
 let _quota = null;
@@ -1225,11 +1226,27 @@ _glassboxCard = _initGlassboxCard({
   get petHidden() { return petWindowRuntime.isPetHidden(); },
 });
 
-// Hover HUD — TermiPet-style action toolbar beside the pet (item 4). Pet hit
-// window + this HUD window both report hover; a single delayed dismiss bridges
-// the gap between them so it never flickers.
+// The pet window has transparent padding around the visible character; anchor
+// the HUD to the VISIBLE pet (window minus the theme's content margins) so it
+// sits snug against the character instead of way out at the window edge.
+function getPetVisibleBounds() {
+  const b = getPetWindowBounds();
+  if (!b) return b;
+  try {
+    // The visible character rect (theme contentBox, idle frame) in screen px —
+    // the same anchor the pet geometry uses. Anchoring the HUD to THIS (not the
+    // transparent-padded window) makes it sit snug against the character.
+    const r = _visibleMargins.computeThemeAnchorRect(getActiveTheme(), b);
+    if (r && r.bottom > r.top && r.right > r.left) {
+      return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.right - r.left), height: Math.round(r.bottom - r.top) };
+    }
+  } catch {}
+  return b;
+}
+// Hover HUD — TermiPet-style panel ABOVE the pet (item 4). Pet hit window + this
+// HUD window both report hover; a short delayed dismiss bridges the gap.
 _glassboxHud = _initGlassboxHud({
-  getPetWindowBounds,
+  getPetWindowBounds: getPetVisibleBounds,
   getNearestWorkArea,
   get petHidden() { return petWindowRuntime.isPetHidden(); },
   getUsage: (o) => (_quota ? _quota.getUsage(o) : Promise.resolve({ status: "loading" })),

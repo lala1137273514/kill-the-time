@@ -17,7 +17,7 @@ const path = require("path");
 
 const WIDTH = 240;
 const HEIGHT = 110;        // usage strip + toolbar row
-const GAP = 8;
+const GAP = 6;
 const MARGIN = 8;
 const DISMISS_MS = 140;    // snappy: delay before collapse after leaving the zone
 const COLLAPSE_MS = 150;   // matches the renderer's collapse animation
