@@ -1338,9 +1338,13 @@ const _state = require("./state")(_stateCtx);
 // Glass-box voice narration host (opt-in). Built here so sendToRenderer /
 // soundVolume / sessionLog are all defined; the snapshot tap in
 // broadcastSessionSnapshot above closes over the module-scope `glassboxVoice`.
-if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
+// Glass-box voice remote is the core of this build, so it's ON by default; set
+// CLAWD_GLASSBOX_DISABLE=1 to fall back to vanilla Clawd (no input bar / voice).
+const glassboxEnabled = process.env.CLAWD_GLASSBOX_DISABLE !== "1";
+if (glassboxEnabled) {
   try {
     const { GlassboxVoice } = require("./glassbox-voice");
+    const { glassboxVoiceShouldSpeak } = require("./glassbox-settings");
     const glassboxTts = require("./glassbox-tts");
     const osMod = require("os");
     const fsMod = require("fs");
@@ -1353,6 +1357,12 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
         // Honor mute / Do-Not-Disturb — playSound() gates these for chimes, and
         // narration (a louder, more frequent voice) must respect them too.
         if (soundMuted || doNotDisturb) return;
+        // Master voice switch: settings.glassbox.voiceEnabled (default on);
+        // CLAWD_GLASSBOX_VOICE=1 forces on. Toggle off to mute all narration.
+        try {
+          const _snap = (_settingsController && _settingsController.getSnapshot) ? _settingsController.getSnapshot() : null;
+          if (!glassboxVoiceShouldSpeak({ env: process.env, glassbox: _snap && _snap.glassbox })) return;
+        } catch {}
         const file = pathMod.join(osMod.tmpdir(), `clawd-glassbox-${process.pid}-${voiceSeq++}.wav`);
         fsMod.writeFileSync(file, buf);
         // Dedicated channel: the renderer plays this once WITHOUT caching it —
@@ -1370,7 +1380,7 @@ if (process.env.CLAWD_GLASSBOX_VOICE === "1") {
       now: () => Date.now(),
       log: (msg) => sessionLog(msg),
     });
-    sessionLog("glassbox-voice: enabled (CLAWD_GLASSBOX_VOICE=1)");
+    sessionLog("glassbox: enabled (default; disable with CLAWD_GLASSBOX_DISABLE=1)");
 
     // Active supervisor: speaks up on a stall / on completion of a dispatched run.
     const { createSupervisor } = require("./glassbox-supervisor");

@@ -1254,7 +1254,7 @@ describe("prefs glassbox settings (v9)", () => {
   it("defaults glassbox to the unset block", () => {
     const d = prefs.getDefaults();
     assert.deepStrictEqual(d.glassbox, {
-      voiceEnabled: false,
+      voiceEnabled: true,
       wakeWordEnabled: false,
       hotkey: "",
       orchestratorModel: "",
@@ -1272,7 +1272,7 @@ describe("prefs glassbox settings (v9)", () => {
     });
     assert.strictEqual(v.glassbox.orchestratorModel, "qwen-max");
     assert.strictEqual(v.glassbox.permissionMode, ""); // invalid mode → unset
-    assert.strictEqual(v.glassbox.voiceEnabled, false); // bad type → default
+    assert.strictEqual(v.glassbox.voiceEnabled, true); // bad type → default (now on)
     assert.strictEqual(v.glassbox.systemPrompt, "X");
   });
 
@@ -1280,7 +1280,7 @@ describe("prefs glassbox settings (v9)", () => {
     const v = prefs.validate(prefs.migrate({ version: 8, lang: "zh" }));
     assert.strictEqual(v.version, prefs.CURRENT_VERSION);
     assert.strictEqual(v.lang, "zh");
-    assert.strictEqual(v.glassbox.voiceEnabled, false);
+    assert.strictEqual(v.glassbox.voiceEnabled, true);
     assert.strictEqual(v.glassbox.systemPrompt, "");
   });
 

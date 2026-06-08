@@ -3,12 +3,12 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
 
-const { DEFAULT_GLASSBOX_SETTINGS, PERMISSION_MODES, normalizeGlassboxSettings } = require("../src/glassbox-settings");
+const { DEFAULT_GLASSBOX_SETTINGS, PERMISSION_MODES, normalizeGlassboxSettings, glassboxVoiceShouldSpeak } = require("../src/glassbox-settings");
 
 describe("glassbox-settings defaults", () => {
   it("defaults every knob to an 'unset' value (false / empty = use env or built-in)", () => {
     assert.deepStrictEqual(DEFAULT_GLASSBOX_SETTINGS, {
-      voiceEnabled: false,
+      voiceEnabled: true,
       wakeWordEnabled: false,
       hotkey: "",
       orchestratorModel: "",
@@ -68,7 +68,7 @@ describe("glassbox-settings normalizeGlassboxSettings", () => {
       confirmMode: "nope",      // not a valid mode
       systemPrompt: 123,
     }, { ...DEFAULT_GLASSBOX_SETTINGS });
-    assert.strictEqual(v.voiceEnabled, false);
+    assert.strictEqual(v.voiceEnabled, true); // invalid "yes" → base default (now on)
     assert.strictEqual(v.wakeWordEnabled, false);
     assert.strictEqual(v.hotkey, "");
     assert.strictEqual(v.orchestratorModel, "");
@@ -84,5 +84,21 @@ describe("glassbox-settings normalizeGlassboxSettings", () => {
     }
     assert.ok(PERMISSION_MODES.includes("bypassPermissions"));
     assert.ok(PERMISSION_MODES.includes(""));
+  });
+});
+
+describe("glassboxVoiceShouldSpeak", () => {
+  it("is on by default (no env override, no setting)", () => {
+    assert.strictEqual(glassboxVoiceShouldSpeak({ env: {}, glassbox: undefined }), true);
+    assert.strictEqual(glassboxVoiceShouldSpeak({ env: {}, glassbox: {} }), true);
+  });
+
+  it("honors the voiceEnabled setting", () => {
+    assert.strictEqual(glassboxVoiceShouldSpeak({ env: {}, glassbox: { voiceEnabled: false } }), false);
+    assert.strictEqual(glassboxVoiceShouldSpeak({ env: {}, glassbox: { voiceEnabled: true } }), true);
+  });
+
+  it("CLAWD_GLASSBOX_VOICE=1 forces voice on even when the setting is off", () => {
+    assert.strictEqual(glassboxVoiceShouldSpeak({ env: { CLAWD_GLASSBOX_VOICE: "1" }, glassbox: { voiceEnabled: false } }), true);
   });
 });

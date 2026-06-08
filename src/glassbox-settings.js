@@ -13,7 +13,7 @@ const PERMISSION_MODES = Object.freeze(["", "bypassPermissions", "acceptEdits", 
 const CONFIRM_MODES = Object.freeze(["always", "writes-only"]);
 
 const DEFAULT_GLASSBOX_SETTINGS = Object.freeze({
-  voiceEnabled: false,    // master switch (mirrors CLAWD_GLASSBOX_VOICE)
+  voiceEnabled: true,     // master TTS switch — ON by default (this build's core); toggle off to mute narration
   wakeWordEnabled: false, // always-on "hey, cc"
   hotkey: "",             // "" = CLAWD_GLASSBOX_HOTKEY / CommandOrControl+Space
   orchestratorModel: "",  // "" = CLAWD_ORCHESTRATOR_MODEL / qwen-plus
@@ -50,4 +50,13 @@ function normalizeGlassboxSettings(value, defaultsValue) {
   };
 }
 
-module.exports = { DEFAULT_GLASSBOX_SETTINGS, PERMISSION_MODES, CONFIRM_MODES, normalizeGlassboxSettings };
+// Whether glass-box TTS narration should play. `CLAWD_GLASSBOX_VOICE=1` force-on
+// (back-compat / test override); otherwise the `voiceEnabled` setting decides,
+// defaulting on. The single choke point gating every spoken line.
+function glassboxVoiceShouldSpeak({ env, glassbox } = {}) {
+  if (env && env.CLAWD_GLASSBOX_VOICE === "1") return true;
+  if (glassbox && typeof glassbox.voiceEnabled === "boolean") return glassbox.voiceEnabled;
+  return DEFAULT_GLASSBOX_SETTINGS.voiceEnabled;
+}
+
+module.exports = { DEFAULT_GLASSBOX_SETTINGS, PERMISSION_MODES, CONFIRM_MODES, normalizeGlassboxSettings, glassboxVoiceShouldSpeak };
