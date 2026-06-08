@@ -1,6 +1,9 @@
 const { app, BrowserWindow, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell, nativeImage, powerSaveBlocker, clipboard } = require("electron");
 const path = require("path");
 const fs = require("fs");
+// Load a gitignored repo-root .env (e.g. BAILIAN_API_KEY) before anything reads
+// process.env. The shell env always wins; missing .env is a no-op.
+require("./load-env").loadRepoEnv();
 const { EventEmitter } = require("events");
 const {
   applyWindowsAppUserModelId,
