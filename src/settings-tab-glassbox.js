@@ -4,23 +4,56 @@
 // plain <script> in the settings window (no require/contextIsolation issues): it
 // inlines the row spec and writes each nested glassbox.* field through the generic
 // settings command `setGlassboxField` (validated server-side in settings-actions).
+//
+// buildSwitchRow (settings-ui-core) is wired to TOP-LEVEL prefs via
+// settingsAPI.update(key, ...). The glassbox fields are nested under glassbox.*
+// and saved via settingsAPI.command("setGlassboxField", ...), so we build the
+// row markup with the same native classes (.row / .switch / .segmented) but wire
+// our own change handlers.
 (function initSettingsTabGlassbox(root) {
   let helpers = null;
   let state = null;
 
   // Mirrors glassbox-settings-section.buildGlassboxSettingsSpec(); the server
   // validates every write, so a stale label here can never corrupt prefs.
+  // Labels/options resolve through helpers.t(...) so the tab follows the UI language.
   const SPEC = [
-    { key: "voiceEnabled", label: "语音总开关", type: "toggle" },
-    { key: "wakeWordEnabled", label: "唤醒词「hey, cc」", type: "toggle" },
-    { key: "confirmMode", label: "执行确认策略", type: "select", options: [["always", "每次都确认"], ["writes-only", "仅写操作时确认"]] },
-    { key: "permissionMode", label: "派发权限模式", type: "select", options: [["", "跟随环境变量（默认）"], ["bypassPermissions", "全部放行（bypass）"], ["acceptEdits", "自动接受编辑"], ["plan", "仅规划"], ["default", "默认（逐项询问）"]] },
-    { key: "orchestratorModel", label: "编排模型", type: "text", placeholder: "留空 = 默认 qwen-plus" },
-    { key: "ttsVoice", label: "语音音色（TTS）", type: "text", placeholder: "留空 = 默认 Cherry" },
-    { key: "whisperModel", label: "Whisper 识别模型", type: "select", options: [["", "跟随环境变量（默认 base）"], ["tiny", "tiny（最快）"], ["base", "base"], ["small", "small"], ["medium", "medium"], ["large", "large（最准）"]] },
-    { key: "hotkey", label: "呼出快捷键", type: "text", placeholder: "留空 = Ctrl+Space" },
-    { key: "systemPrompt", label: "系统提示词", type: "textarea", placeholder: "留空 = 用内置提示词文件" },
+    { key: "voiceEnabled", labelKey: "glassboxVoiceEnabled", descKey: "glassboxVoiceEnabledDesc", type: "toggle" },
+    { key: "wakeWordEnabled", labelKey: "glassboxWakeWord", descKey: "glassboxWakeWordDesc", type: "toggle" },
+    {
+      key: "confirmMode", labelKey: "glassboxConfirmMode", descKey: "glassboxConfirmModeDesc", type: "select",
+      options: [["always", "glassboxConfirmAlways"], ["writes-only", "glassboxConfirmWritesOnly"]],
+    },
+    {
+      key: "permissionMode", labelKey: "glassboxPermissionMode", descKey: "glassboxPermissionModeDesc", type: "select",
+      options: [
+        ["", "glassboxPermissionFollowEnv"],
+        ["bypassPermissions", "glassboxPermissionBypass"],
+        ["acceptEdits", "glassboxPermissionAcceptEdits"],
+        ["plan", "glassboxPermissionPlan"],
+        ["default", "glassboxPermissionDefault"],
+      ],
+    },
+    { key: "orchestratorModel", labelKey: "glassboxOrchModel", descKey: "glassboxOrchModelDesc", type: "text", placeholderKey: "glassboxOrchModelPlaceholder" },
+    { key: "ttsVoice", labelKey: "glassboxTtsVoice", descKey: "glassboxTtsVoiceDesc", type: "text", placeholderKey: "glassboxTtsVoicePlaceholder" },
+    {
+      key: "whisperModel", labelKey: "glassboxWhisperModel", descKey: "glassboxWhisperModelDesc", type: "select",
+      options: [
+        ["", "glassboxWhisperFollowEnv"],
+        ["tiny", "glassboxWhisperTiny"],
+        ["base", "glassboxWhisperBase"],
+        ["small", "glassboxWhisperSmall"],
+        ["medium", "glassboxWhisperMedium"],
+        ["large", "glassboxWhisperLarge"],
+      ],
+    },
+    { key: "hotkey", labelKey: "glassboxHotkey", descKey: "glassboxHotkeyDesc", type: "text", placeholderKey: "glassboxHotkeyPlaceholder" },
+    { key: "systemPrompt", labelKey: "glassboxSystemPrompt", descKey: "glassboxSystemPromptDesc", type: "textarea", placeholderKey: "glassboxSystemPromptPlaceholder" },
   ];
+
+  function t(key) {
+    return helpers.t(key);
+  }
 
   function gbValue(key) {
     const snap = (state && state.snapshot) || {};
@@ -33,70 +66,136 @@
     Promise.resolve(window.settingsAPI.command("setGlassboxField", { field, value })).catch(() => {});
   }
 
-  function buildRow(row) {
-    const wrap = document.createElement("div");
-    wrap.className = "settings-row glassbox-row";
-    wrap.style.cssText = "display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:10px 2px;border-bottom:1px solid rgba(128,128,128,0.15);";
-    const label = document.createElement("label");
-    label.className = "settings-row-label";
-    label.style.cssText = "font-size:13px;padding-top:5px;white-space:nowrap;";
-    label.textContent = row.label;
-    wrap.appendChild(label);
-
-    let control;
-    if (row.type === "toggle") {
-      control = document.createElement("input");
-      control.type = "checkbox";
-      control.checked = gbValue(row.key) === true;
-      control.addEventListener("change", () => save(row.key, control.checked));
-    } else if (row.type === "select") {
-      control = document.createElement("select");
-      const cur = gbValue(row.key) || "";
-      for (const [val, lbl] of row.options) {
-        const opt = document.createElement("option");
-        opt.value = val; opt.textContent = lbl;
-        if (cur === val) opt.selected = true;
-        control.appendChild(opt);
-      }
-      control.addEventListener("change", () => save(row.key, control.value));
-    } else {
-      control = document.createElement(row.type === "textarea" ? "textarea" : "input");
-      if (row.type !== "textarea") control.type = "text";
-      control.value = gbValue(row.key) || "";
-      if (row.placeholder) control.placeholder = row.placeholder;
-      let timer = null;
-      control.addEventListener("input", () => {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => save(row.key, control.value), 500);
-      });
-      control.addEventListener("blur", () => { if (timer) { clearTimeout(timer); timer = null; } save(row.key, control.value); });
+  function buildRowShell(spec) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const text = document.createElement("div");
+    text.className = "row-text";
+    const label = document.createElement("span");
+    label.className = "row-label";
+    label.textContent = t(spec.labelKey);
+    text.appendChild(label);
+    if (spec.descKey) {
+      const desc = document.createElement("span");
+      desc.className = "row-desc";
+      desc.textContent = t(spec.descKey);
+      text.appendChild(desc);
     }
-    control.className = "glassbox-control";
-    if (row.type === "text" || row.type === "select") control.style.cssText = "min-width:240px;max-width:320px;";
-    if (row.type === "textarea") control.style.cssText = "min-width:240px;max-width:320px;min-height:64px;";
-    wrap.appendChild(control);
-    return wrap;
+    row.appendChild(text);
+    const ctrl = document.createElement("div");
+    ctrl.className = "row-control";
+    row.appendChild(ctrl);
+    return { row, ctrl };
+  }
+
+  function buildToggle(spec, ctrl) {
+    const sw = document.createElement("div");
+    sw.className = "switch";
+    sw.setAttribute("role", "switch");
+    sw.tabIndex = 0;
+    const on = gbValue(spec.key) === true;
+    sw.classList.toggle("on", on);
+    sw.setAttribute("aria-checked", on ? "true" : "false");
+    const toggle = () => {
+      const next = !sw.classList.contains("on");
+      sw.classList.toggle("on", next);
+      sw.setAttribute("aria-checked", next ? "true" : "false");
+      save(spec.key, next);
+    };
+    sw.addEventListener("click", toggle);
+    sw.addEventListener("keydown", (ev) => {
+      if (ev.key === " " || ev.key === "Enter") {
+        ev.preventDefault();
+        toggle();
+      }
+    });
+    ctrl.appendChild(sw);
+  }
+
+  function buildSelect(spec, ctrl) {
+    // Many options overflow a segmented control (it squishes the row label to
+    // vertical) — use a native dropdown for >3, keep segmented for 2-3.
+    if (spec.options.length > 3) {
+      const sel = document.createElement("select");
+      sel.className = "glassbox-select hardware-buddy-text-input";
+      const curv = gbValue(spec.key) || "";
+      for (const [val, lblKey] of spec.options) {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = t(lblKey);
+        if (curv === val) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener("change", () => save(spec.key, sel.value));
+      ctrl.appendChild(sel);
+      return;
+    }
+    const segmented = document.createElement("div");
+    segmented.className = "segmented";
+    segmented.setAttribute("role", "tablist");
+    const cur = gbValue(spec.key) || "";
+    for (const [val, lblKey] of spec.options) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.dataset.value = val;
+      btn.textContent = t(lblKey);
+      btn.classList.toggle("active", cur === val);
+      btn.addEventListener("click", () => {
+        if (btn.classList.contains("active")) return;
+        for (const other of segmented.querySelectorAll("button")) {
+          other.classList.toggle("active", other === btn);
+        }
+        save(spec.key, val);
+      });
+      segmented.appendChild(btn);
+    }
+    ctrl.appendChild(segmented);
+  }
+
+  function buildTextInput(spec, ctrl) {
+    const input = document.createElement(spec.type === "textarea" ? "textarea" : "input");
+    if (spec.type !== "textarea") input.type = "text";
+    input.className = "hardware-buddy-text-input glassbox-text-input";
+    input.value = gbValue(spec.key) || "";
+    if (spec.placeholderKey) input.placeholder = t(spec.placeholderKey);
+    let timer = null;
+    input.addEventListener("input", () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => save(spec.key, input.value), 500);
+    });
+    input.addEventListener("blur", () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      save(spec.key, input.value);
+    });
+    const wrap = document.createElement("div");
+    wrap.className = "hardware-buddy-text-control glassbox-text-control";
+    wrap.appendChild(input);
+    ctrl.appendChild(wrap);
+  }
+
+  function buildRow(spec) {
+    const { row, ctrl } = buildRowShell(spec);
+    if (spec.type === "toggle") buildToggle(spec, ctrl);
+    else if (spec.type === "select") buildSelect(spec, ctrl);
+    else buildTextInput(spec, ctrl);
+    return row;
   }
 
   function renderGlassboxTab(container, core) {
     helpers = core.helpers;
     state = core.state;
 
-    const section = document.createElement("div");
-    section.className = "settings-tab-section";
+    const heading = document.createElement("h1");
+    heading.textContent = t("glassboxTabTitle");
+    container.appendChild(heading);
 
-    const title = document.createElement("h3");
-    title.textContent = "玻璃盒语音设置";
-    section.appendChild(title);
+    const subtitle = document.createElement("p");
+    subtitle.className = "subtitle";
+    subtitle.textContent = t("glassboxTabDesc");
+    container.appendChild(subtitle);
 
-    const desc = document.createElement("p");
-    desc.className = "settings-tab-desc";
-    desc.textContent = "桌宠语音遥控的开关与参数。留空 = 用环境变量 / 内置默认；改动即时生效（热键需重启）。需以 CLAWD_GLASSBOX_VOICE=1 启动。";
-    section.appendChild(desc);
-
-    for (const row of SPEC) section.appendChild(buildRow(row));
-
-    container.appendChild(section);
+    const rows = SPEC.map((spec) => buildRow(spec));
+    container.appendChild(helpers.buildSection("", rows));
   }
 
   function init(core) {
