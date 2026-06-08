@@ -170,6 +170,18 @@ module.exports = function initMenu(ctx) {
           if (typeof ctx.showQuotaDashboard === "function") ctx.showQuotaDashboard();
         },
       },
+      (() => {
+        const pom = (typeof ctx.getPomodoro === "function") ? ctx.getPomodoro() : { state: "idle", label: "" };
+        const running = pom.state !== "idle";
+        return {
+          label: running ? `${t("pomodoro")} ${pom.label}` : t("pomodoro"),
+          submenu: [
+            { label: t("pomodoroFocus"), click: () => { try { if (ctx.pomodoroStartFocus) ctx.pomodoroStartFocus(); } catch {} } },
+            { label: t("pomodoroBreak"), click: () => { try { if (ctx.pomodoroStartBreak) ctx.pomodoroStartBreak(); } catch {} } },
+            { label: t("pomodoroStop"), enabled: running, click: () => { try { if (ctx.pomodoroStop) ctx.pomodoroStop(); } catch {} } },
+          ],
+        };
+      })(),
       buildBringToPrimaryDisplayMenuItem(),
     );
     // #329: surface the update item in the tray menu. The label switches
