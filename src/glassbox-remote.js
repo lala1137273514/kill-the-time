@@ -91,6 +91,7 @@ class GlassboxRemote {
       return { action: "error", error: err && err.message };
     }
 
+    this.log(`glassbox-remote: decision=${decision.action}` + (decision.action === "dispatch" ? ` risk=${decision.risk} needCapture=${decision.needCapture}` : ""));
     switch (decision.action) {
       case "approve":
         this.resolvePermission("allow");
@@ -140,6 +141,7 @@ class GlassboxRemote {
 
     // Don't guess a directory (spec §6 risk). Ask before we even confirm.
     if (!plan.cwd) {
+      this.log("glassbox-remote: no cwd (foreground isn't a tracked agent session) — asking, not dispatching");
       this.onPhase("needs-input");
       this.speak("我不确定在哪个目录跑，帮我指一下");
       return;
@@ -153,6 +155,7 @@ class GlassboxRemote {
       if (recap) this.speak(`我要让它：${recap}，对吗？`);
       this.onPhase("confirming");
       const ok = await this.confirmDispatch(decision);
+      this.log(`glassbox-remote: confirm=${ok ? "yes" : "cancel"}`);
       if (!ok) {
         this.onPhase("cancelled");
         this.speak("好，取消了");
@@ -162,6 +165,7 @@ class GlassboxRemote {
 
     try {
       this.onPhase("dispatching");
+      this.log(`glassbox-remote: dispatching cwd=${plan.cwd}`);
       this.dispatchFn(plan, {
         onComplete: (result) => {
           const summary = summarizeForSpeech(lastMeaningfulLine(result && result.output));
