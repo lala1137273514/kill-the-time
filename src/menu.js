@@ -164,6 +164,12 @@ module.exports = function initMenu(ctx) {
           if (typeof ctx.openDashboard === "function") ctx.openDashboard();
         },
       },
+      {
+        label: t("quotaDashboard"),
+        click: () => {
+          if (typeof ctx.showQuotaDashboard === "function") ctx.showQuotaDashboard();
+        },
+      },
       buildBringToPrimaryDisplayMenuItem(),
     );
     // #329: surface the update item in the tray menu. The label switches
@@ -323,6 +329,12 @@ module.exports = function initMenu(ctx) {
         label: t("openDashboard"),
         click: () => {
           if (typeof ctx.openDashboard === "function") ctx.openDashboard();
+        },
+      },
+      {
+        label: t("quotaDashboard"),
+        click: () => {
+          if (typeof ctx.showQuotaDashboard === "function") ctx.showQuotaDashboard();
         },
       },
     ];

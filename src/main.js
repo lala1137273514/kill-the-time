@@ -291,6 +291,10 @@ const _initGlassboxBubble = require("./glassbox-bubble");
 let _glassboxBubble = null;
 const _initGlassboxFx = require("./glassbox-fx");
 let _glassboxFx = null;
+const _createQuota = require("./quota").createQuota;
+const _initQuotaPopup = require("./quota-popup");
+let _quota = null;
+let _quotaPopup = null;
 let glassboxDemoRunning = false;
 let glassboxDemoCancel = false;
 function relayGlassboxPhase(phase) {
@@ -1183,6 +1187,16 @@ _glassboxFx = _initGlassboxFx({
   getNearestWorkArea,
   get petHidden() { return petWindowRuntime.isPetHidden(); },
 });
+// Claude usage dashboard (功能1) — popup near the pet, opened from menu/tray.
+_quota = _createQuota({});
+_quotaPopup = _initQuotaPopup({
+  getPetWindowBounds,
+  getNearestWorkArea,
+  get petHidden() { return petWindowRuntime.isPetHidden(); },
+  getUsage: (o) => _quota.getUsage(o),
+});
+function showQuotaDashboard() { try { if (_quotaPopup) _quotaPopup.toggle(); } catch {} }
+ipcMain.on("quota:refresh", () => { try { if (_quotaPopup) _quotaPopup.refresh(true); } catch {} });
 const {
   showUpdateBubble,
   hideUpdateBubble,
@@ -2847,6 +2861,7 @@ const _menuCtx = {
   checkForUpdates: (...args) => checkForUpdates(...args),
   getUpdateMenuItem: () => getUpdateMenuItem(),
   openDashboard: () => showDashboard(),
+  showQuotaDashboard: () => showQuotaDashboard(),
   // The settings controller is the only writer of persisted prefs. Toggle
   // setters above route through it; resize/sendToDisplay use
   // flushRuntimeStateToPrefs to capture window bounds after movement.
@@ -3234,8 +3249,8 @@ function createWindow() {
   });
 
   // Event-level safety net for position sync
-  win.on("move", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} });
-  win.on("resize", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} });
+  win.on("move", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} });
+  win.on("resize", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} });
 
   syncSessionHudVisibility();
 
@@ -3731,6 +3746,7 @@ if (!gotTheLock) {
     globalShortcut.unregisterAll();
     try { if (glassboxWakeWin && !glassboxWakeWin.isDestroyed()) glassboxWakeWin.close(); } catch {}
     try { if (_glassboxFx) _glassboxFx.cleanup(); } catch {}
+    try { if (_quotaPopup) _quotaPopup.cleanup(); } catch {}
     void settingsSizePreviewSession.cleanup();
     stopTelegramApprovalSidecar();
     if (typeof unsubscribeHardwareBuddySettings === "function") {
