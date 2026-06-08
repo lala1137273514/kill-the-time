@@ -295,6 +295,11 @@ const _createQuota = require("./quota").createQuota;
 const _initQuotaPopup = require("./quota-popup");
 let _quota = null;
 let _quotaPopup = null;
+const { createPomodoro, formatRemaining } = require("./pomodoro");
+const _pomFocusMs = (Number.parseInt(process.env.CLAWD_POMODORO_FOCUS_MIN, 10) || 25) * 60000;
+const _pomBreakMs = (Number.parseInt(process.env.CLAWD_POMODORO_BREAK_MIN, 10) || 5) * 60000;
+const _pomodoro = createPomodoro({ focusMs: _pomFocusMs, breakMs: _pomBreakMs });
+let _pomodoroTimer = null;
 let glassboxDemoRunning = false;
 let glassboxDemoCancel = false;
 function relayGlassboxPhase(phase) {
@@ -1197,6 +1202,32 @@ _quotaPopup = _initQuotaPopup({
 });
 function showQuotaDashboard() { try { if (_quotaPopup) _quotaPopup.toggle(); } catch {} }
 ipcMain.on("quota:refresh", () => { try { if (_quotaPopup) _quotaPopup.refresh(true); } catch {} });
+
+// Pomodoro (功能2): pure machine + a 1s ticker that runs only while active.
+function _pomodoroRefreshTray() { try { if (_menu && typeof _menu.rebuildAllMenus === "function") _menu.rebuildAllMenus(); } catch {} }
+function _pomodoroStopTimer() { if (_pomodoroTimer) { clearInterval(_pomodoroTimer); _pomodoroTimer = null; } }
+function _pomodoroCelebrate(kind) {
+  try { if (typeof setState === "function") setState("notification"); } catch {}
+  try { resetSoundCooldown(); } catch {}
+  try { playSound("complete"); } catch {}
+  try {
+    const { Notification } = require("electron");
+    if (Notification.isSupported()) {
+      new Notification({ title: "番茄钟", body: kind === "focus" ? "专注完成，休息一下 🎉" : "休息结束，继续加油 💪" }).show();
+    }
+  } catch {}
+}
+function _pomodoroEnsureTimer() {
+  if (_pomodoroTimer) return;
+  _pomodoroTimer = setInterval(() => {
+    const r = _pomodoro.tick();
+    if (r.justFinished) { _pomodoroStopTimer(); _pomodoroCelebrate(r.justFinished); }
+    _pomodoroRefreshTray();
+  }, 1000);
+  if (_pomodoroTimer && _pomodoroTimer.unref) _pomodoroTimer.unref();
+}
+function pomodoroStart(kind) { if (kind === "break") _pomodoro.startBreak(); else _pomodoro.startFocus(); _pomodoroEnsureTimer(); _pomodoroRefreshTray(); }
+function pomodoroStop() { _pomodoro.stop(); _pomodoroStopTimer(); _pomodoroRefreshTray(); }
 const {
   showUpdateBubble,
   hideUpdateBubble,
@@ -2862,6 +2893,10 @@ const _menuCtx = {
   getUpdateMenuItem: () => getUpdateMenuItem(),
   openDashboard: () => showDashboard(),
   showQuotaDashboard: () => showQuotaDashboard(),
+  getPomodoro: () => ({ state: _pomodoro.state, label: formatRemaining(_pomodoro.snapshot().remainingMs) }),
+  pomodoroStartFocus: () => pomodoroStart("focus"),
+  pomodoroStartBreak: () => pomodoroStart("break"),
+  pomodoroStop: () => pomodoroStop(),
   // The settings controller is the only writer of persisted prefs. Toggle
   // setters above route through it; resize/sendToDisplay use
   // flushRuntimeStateToPrefs to capture window bounds after movement.
@@ -3747,6 +3782,7 @@ if (!gotTheLock) {
     try { if (glassboxWakeWin && !glassboxWakeWin.isDestroyed()) glassboxWakeWin.close(); } catch {}
     try { if (_glassboxFx) _glassboxFx.cleanup(); } catch {}
     try { if (_quotaPopup) _quotaPopup.cleanup(); } catch {}
+    try { _pomodoroStopTimer(); } catch {}
     void settingsSizePreviewSession.cleanup();
     stopTelegramApprovalSidecar();
     if (typeof unsubscribeHardwareBuddySettings === "function") {
