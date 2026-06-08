@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: transparent; overflow: hidden; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  #card {
+    margin: 8px;
+    height: calc(100vh - 16px);
+    display: flex;
+    flex-direction: column;
+    padding: 14px 16px;
+    background: rgba(28, 28, 30, 0.96);
+    border: 1px solid rgba(120, 170, 255, 0.28);
+    border-radius: 16px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+    color: #fff;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 140ms ease, transform 140ms ease;
+  }
+  #card.show { opacity: 1; transform: translateY(0); }
+  /* a soft breathing glow while a step is in flight (non-terminal) */
+  #card.live { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { border-color: rgba(120, 170, 255, 0.6); } }
+
+  .row { display: flex; align-items: center; gap: 8px; }
+  #emoji { font-size: 20px; line-height: 1; flex: 0 0 auto; }
+
+  /* status mode: one wrapping line, no truncation */
+  #status {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  /* activity mode: the "visible terminal" — a scrolling list of action lines */
+  #activity {
+    flex: 1 1 auto;
+    margin-top: 8px;
+    overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: #e3e3e6;
+  }
+  #activity::-webkit-scrollbar { width: 6px; }
+  #activity::-webkit-scrollbar-track { background: transparent; }
+  #activity::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 3px; }
+  #activity::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.24); }
+  .act-line {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    padding: 1px 0;
+  }
+  .act-line::before { content: "› "; color: rgba(120, 170, 255, 0.8); }
+
+  /* chat mode: full, readable, wrapped assistant reply */
+  #chat {
+    flex: 1 1 auto;
+    margin-top: 8px;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.55;
+    color: #f2f2f4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  #chat::-webkit-scrollbar { width: 6px; }
+  #chat::-webkit-scrollbar-track { background: transparent; }
+  #chat::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 3px; }
+  #chat::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.24); }
+
+  /* permission mode: a summary line + two buttons */
+  #perm-summary {
+    flex: 1 1 auto;
+    margin-top: 8px;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #f2f2f4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  #perm-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+    flex: 0 0 auto;
+  }
+  .perm-btn {
+    flex: 1 1 0;
+    height: 34px;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.12s ease, background 0.12s ease;
+  }
+  .perm-btn.approve {
+    background: rgba(120, 170, 255, 0.92);
+    color: #0b1220;
+  }
+  .perm-btn.approve:hover { filter: brightness(1.08); }
+  .perm-btn.deny {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #fff;
+  }
+  .perm-btn.deny:hover { background: rgba(255, 255, 255, 0.14); }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="card">
+  <div class="row">
+    <span id="emoji"></span>
+    <span id="status"></span>
+  </div>
+  <div id="activity" class="hidden"></div>
+  <div id="chat" class="hidden"></div>
+  <div id="perm-summary" class="hidden"></div>
+  <div id="perm-buttons" class="hidden">
+    <button id="perm-approve" class="perm-btn approve">批准</button>
+    <button id="perm-deny" class="perm-btn deny">拒绝</button>
+  </div>
+</div>
+<script src="glassbox-card-renderer.js"></script>
+</body>
+</html>
