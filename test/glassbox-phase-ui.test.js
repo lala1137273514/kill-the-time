@@ -57,7 +57,7 @@ describe("glassbox-phase-ui phaseFeedback", () => {
 
   it("uses Chinese status microcopy with a non-empty hint for mid-flow phases", () => {
     assert.match(phaseFeedback("thinking").status, /想|思考/);
-    assert.match(phaseFeedback("running").status, /干活|处理|跑/);
+    assert.match(phaseFeedback("running").status, /干活|处理|跑|监工/);
     for (const p of NON_TERMINAL) assert.ok(phaseFeedback(p).status.length > 0, `${p} status empty`);
     assert.ok(phaseFeedback("done").status.length > 0);
   });

@@ -11,6 +11,8 @@
 const MILESTONES = {
   START: "start",
   FANOUT: "fanout",
+  WAITING: "waiting",
+  COMPACTING: "compacting",
   STUCK: "stuck",
   DONE: "done",
 };
@@ -27,6 +29,16 @@ const LINES = {
     (n) => `我兵分 ${n} 路同时查，省点时间`,
     (n) => `${n} 个方向一起开搞了`,
     (n) => `派了 ${n} 个分身并行处理`,
+  ],
+  waiting: [
+    "它停在确认点了，需要你批一下",
+    "现在在等你确认，批准或拒绝都行",
+    "这里需要你做决定，我先守着",
+  ],
+  compacting: [
+    "它在压缩上下文，我等它收拾完",
+    "正在整理上下文，马上轻装继续",
+    "这一步是在清扫历史，不是卡住",
   ],
   stuck: [
     "这里有点绕，我换个法子",
@@ -52,6 +64,14 @@ function subagentsOf(session) {
   const n = Number(session && session.subagentCount);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
+function rawEventOf(session) {
+  return session && session.lastEvent && typeof session.lastEvent.rawEvent === "string"
+    ? session.lastEvent.rawEvent
+    : null;
+}
+
+const WAITING_EVENTS = new Set(["PermissionRequest", "Elicitation"]);
+const COMPACTING_EVENTS = new Set(["PreCompact", "PreCompress"]);
 
 class NarrationController {
   // opts.minIntervalMs: floor between two spoken lines (done bypasses it).
@@ -70,15 +90,20 @@ class NarrationController {
   _detect(session) {
     const id = session && session.id;
     if (!id) return null;
-    const prev = this.prev.get(id) || { badge: "idle", state: "idle", subagentCount: 0, started: false };
+    const prev = this.prev.get(id) || { badge: "idle", state: "idle", subagentCount: 0, event: null, started: false };
     const curBadge = badgeOf(session);
     const curState = stateOf(session);
     const curSubs = subagentsOf(session);
+    const curEvent = rawEventOf(session);
 
     let result = null;
     let started = prev.started;
     if (curBadge === "done" && prev.badge !== "done") {
       result = { milestone: MILESTONES.DONE };
+    } else if (WAITING_EVENTS.has(curEvent) && prev.event !== curEvent) {
+      result = { milestone: MILESTONES.WAITING };
+    } else if ((COMPACTING_EVENTS.has(curEvent) || curState === "sweeping") && prev.event !== curEvent) {
+      result = { milestone: MILESTONES.COMPACTING };
     } else if (curBadge === "interrupted" && prev.badge !== "interrupted") {
       // Failures surface as badge "interrupted" — state "error" is a one-shot
       // that updateSession stores as idle, so it never reaches the snapshot.
@@ -91,7 +116,7 @@ class NarrationController {
       started = true;
     }
 
-    this.prev.set(id, { badge: curBadge, state: curState, subagentCount: curSubs, started });
+    this.prev.set(id, { badge: curBadge, state: curState, subagentCount: curSubs, event: curEvent, started });
     return result;
   }
 

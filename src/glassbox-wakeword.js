@@ -47,12 +47,12 @@ class WakeWordDetector {
 
   // feedClip(wavPath) -> { wake, text?, reason? }
   // Called by the capture loop for each gated audio window.
-  async feedClip(wavPath) {
+  async feedClip(wavPath, opts = {}) {
     if (!this.enabled) return { wake: false, reason: "disabled" };
     if (!this.transcribe) return { wake: false, reason: "no-transcribe" };
     let text = "";
     try {
-      text = await this.transcribe(wavPath);
+      text = await this.transcribe(wavPath, opts);
     } catch (err) {
       this.log(`glassbox-wakeword: transcribe failed: ${err && err.message}`);
       return { wake: false, reason: "error" };

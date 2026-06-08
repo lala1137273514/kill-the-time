@@ -49,6 +49,8 @@ function registerPetInteractionIpc(options = {}) {
     options.setLowPowerIdlePaused,
     "setLowPowerIdlePaused"
   );
+  const onDragReactionStart = typeof options.onDragReactionStart === "function" ? options.onDragReactionStart : noop;
+  const onDragEnd = typeof options.onDragEnd === "function" ? options.onDragEnd : noop;
   const disposers = [];
 
   function on(channel, listener) {
@@ -83,6 +85,7 @@ function registerPetInteractionIpc(options = {}) {
   });
 
   on("start-drag-reaction", (_event, direction) => {
+    onDragReactionStart(direction === "left" || direction === "right" ? direction : null);
     sendToRenderer("start-drag-reaction", direction === "left" || direction === "right" ? direction : null);
   });
   on("end-drag-reaction", () => sendToRenderer("end-drag-reaction"));
@@ -109,6 +112,7 @@ function registerPetInteractionIpc(options = {}) {
         }
       }
     } finally {
+      onDragEnd();
       setDragLocked(false);
       clearDragSnapshot();
     }

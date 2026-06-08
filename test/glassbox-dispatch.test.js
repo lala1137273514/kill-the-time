@@ -45,21 +45,20 @@ describe("glassbox-dispatch helpers", () => {
     assert.strictEqual(commandFor("codex", { codexBin: "C:/codex.cmd" }), "C:/codex.cmd");
   });
 
-  // The prompt goes over stdin (see dispatch), so it is NOT a CLI arg — this
-  // dodges Windows shell arg-escaping for long/CJK prompts. The dispatched run
-  // is headless and the user already confirmed it, so it runs with permissions
-  // bypassed (else tool use hangs on an unanswerable prompt).
-  it("buildArgs builds a fresh claude run (prompt via stdin, perms bypassed)", () => {
+  // Claude prompt goes over stdin (see dispatch), so it is NOT a CLI arg — this
+  // dodges Windows shell arg-escaping for long/CJK prompts. Permission defaults
+  // to the agent's native/default flow; the pet supervises, it does not YOLO.
+  it("buildArgs builds a fresh claude run (prompt via stdin, native permissions)", () => {
     assert.deepStrictEqual(
       buildArgs({ agent: "claude", mode: "new", prompt: "做这个" }),
-      ["-p", "--permission-mode", "bypassPermissions"]
+      ["-p", "--permission-mode", "default"]
     );
   });
 
   it("buildArgs resumes a known claude session", () => {
     assert.deepStrictEqual(
       buildArgs({ agent: "claude", mode: "resume", sessionId: "sid-1", prompt: "继续" }),
-      ["-r", "sid-1", "-p", "--permission-mode", "bypassPermissions"]
+      ["-r", "sid-1", "-p", "--permission-mode", "default"]
     );
   });
 
@@ -77,10 +76,10 @@ describe("glassbox-dispatch helpers", () => {
     }
   });
 
-  it("buildArgs builds a codex exec run", () => {
+  it("buildArgs builds a codex exec run with the prompt as an explicit argument", () => {
     assert.deepStrictEqual(
       buildArgs({ agent: "codex", mode: "new", prompt: "do it" }),
-      ["exec"]
+      ["exec", "do it"]
     );
   });
 });
@@ -147,6 +146,15 @@ describe("glassbox-dispatch planDispatch", () => {
     });
     assert.strictEqual(plan.agent, "claude");
   });
+
+  it("uses the injected default agent when no session matched", () => {
+    const plan = planDispatch({
+      window: { agentId: null, sessionId: null, cwd: "/c" },
+      decision: { refinedPrompt: "p" },
+      defaultAgent: "codex",
+    });
+    assert.strictEqual(plan.agent, "codex");
+  });
 });
 
 describe("glassbox-dispatch dispatch", () => {
@@ -158,7 +166,7 @@ describe("glassbox-dispatch dispatch", () => {
       { spawnFn: (cmd, args, optsObj) => { spawned = { cmd, args, optsObj }; return child; } }
     );
     assert.strictEqual(spawned.cmd, "claude");
-    assert.deepStrictEqual(spawned.args, ["-p", "--permission-mode", "bypassPermissions"]);
+    assert.deepStrictEqual(spawned.args, ["-p", "--permission-mode", "default"]);
     assert.strictEqual(spawned.optsObj.cwd, "/work");
     assert.strictEqual(child.stdin._writes.join(""), "做这个");
     assert.strictEqual(child.stdin._ended, true);
@@ -173,8 +181,21 @@ describe("glassbox-dispatch dispatch", () => {
       { agent: "claude", mode: "resume", sessionId: "sid-9", cwd: "/w", prompt: "继续" },
       { spawnFn: (cmd, args) => { spawned = { cmd, args }; return child; } }
     );
-    assert.deepStrictEqual(spawned.args, ["-r", "sid-9", "-p", "--permission-mode", "bypassPermissions"]);
+    assert.deepStrictEqual(spawned.args, ["-r", "sid-9", "-p", "--permission-mode", "default"]);
     assert.strictEqual(child.stdin._writes.join(""), "继续");
+  });
+
+  it("spawns codex exec with the prompt argument and no stdin dependency", () => {
+    let spawned = null;
+    const child = fakeChild();
+    child.stdin = null;
+    dispatch(
+      { agent: "codex", mode: "new", cwd: "/work", prompt: "做这个" },
+      { spawnFn: (cmd, args, optsObj) => { spawned = { cmd, args, optsObj }; return child; } }
+    );
+    assert.strictEqual(spawned.cmd, "codex");
+    assert.deepStrictEqual(spawned.args, ["exec", "做这个"]);
+    assert.strictEqual(spawned.optsObj.stdio[0], "ignore");
   });
 
   it("throws when the prompt is empty (no blind dispatch)", () => {

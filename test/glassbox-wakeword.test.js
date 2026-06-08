@@ -70,6 +70,21 @@ describe("glassbox-wakeword WakeWordDetector", () => {
     assert.deepStrictEqual(calls.woke, ["hey cc"]);
   });
 
+  it("passes clip options through to the ASR layer", async () => {
+    const calls = [];
+    const det = new WakeWordDetector({
+      transcribe: async (file, opts) => {
+        calls.push({ file, opts });
+        return "hey cc";
+      },
+      onWake: () => {},
+      log: () => {},
+    });
+    det.start();
+    await det.feedClip("/tmp/wake.ogg", { mime: "audio/ogg;codecs=opus" });
+    assert.deepStrictEqual(calls, [{ file: "/tmp/wake.ogg", opts: { mime: "audio/ogg;codecs=opus" } }]);
+  });
+
   it("does not fire on a non-matching transcript", async () => {
     const { det, calls } = make({ transcribe: async () => "what's the weather" });
     det.start();

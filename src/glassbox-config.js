@@ -22,9 +22,17 @@
 const BUILTIN_DEFAULTS = Object.freeze({
   hotkey: "CommandOrControl+Space",     // main.js: CLAWD_GLASSBOX_HOTKEY fallback
   orchestratorModel: "qwen-plus",       // glassbox-orchestrator: DEFAULT_MODEL
+  orchestratorApiUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+  orchestratorApiKey: "",
+  ttsModel: "qwen3-tts-flash",          // glassbox-tts: DEFAULT_MODEL
+  ttsApiUrl: "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
   ttsVoice: "Cherry",                   // glassbox-tts: DEFAULT_VOICE
+  ttsApiKey: "",
+  asrModel: "small",                    // glassbox-asr local fallback
+  asrApiUrl: "",
+  asrApiKey: "",
   whisperModel: "small",                // glassbox-asr: CLAWD_WHISPER_MODEL fallback
-  permissionMode: "bypassPermissions",  // glassbox-dispatch: CLAWD_DISPATCH_PERMISSION_MODE fallback
+  permissionMode: "default",            // glassbox-dispatch: native/default permission flow
 });
 
 // Which env var (if any) backs each knob, and its built-in default. ttsVoice has
@@ -32,7 +40,15 @@ const BUILTIN_DEFAULTS = Object.freeze({
 const KNOBS = Object.freeze([
   { key: "hotkey", env: "CLAWD_GLASSBOX_HOTKEY" },
   { key: "orchestratorModel", env: "CLAWD_ORCHESTRATOR_MODEL" },
+  { key: "orchestratorApiUrl", env: "DASHSCOPE_CHAT_ENDPOINT" },
+  { key: "orchestratorApiKey", env: ["BAILIAN_API_KEY", "DASHSCOPE_API_KEY"] },
+  { key: "ttsModel", env: "CLAWD_TTS_MODEL" },
+  { key: "ttsApiUrl", env: "DASHSCOPE_TTS_ENDPOINT" },
   { key: "ttsVoice", env: null },
+  { key: "ttsApiKey", env: ["DASHSCOPE_TTS_API_KEY", "BAILIAN_TTS_API_KEY"] },
+  { key: "asrModel", env: "CLAWD_ASR_MODEL" },
+  { key: "asrApiUrl", env: "DASHSCOPE_ASR_ENDPOINT" },
+  { key: "asrApiKey", env: ["DASHSCOPE_ASR_API_KEY", "BAILIAN_ASR_API_KEY"] },
   { key: "whisperModel", env: "CLAWD_WHISPER_MODEL" },
   { key: "permissionMode", env: "CLAWD_DISPATCH_PERMISSION_MODE" },
 ]);
@@ -44,7 +60,8 @@ function usable(value) {
 }
 
 // resolveGlassboxConfig(settingsGlassbox, env) ->
-//   { hotkey, orchestratorModel, ttsVoice, whisperModel, permissionMode }
+//   { hotkey, orchestratorModel, orchestratorApiUrl, orchestratorApiKey,
+//     ttsModel, ttsApiUrl, ttsVoice, asrModel, asrApiUrl, whisperModel, permissionMode }
 // settingsGlassbox: a glassbox settings block (or anything; non-objects ignored).
 // env: an env map (defaults to process.env); non-objects ignored.
 function resolveGlassboxConfig(settingsGlassbox, env = process.env) {
@@ -57,7 +74,8 @@ function resolveGlassboxConfig(settingsGlassbox, env = process.env) {
   for (const { key, env: envName } of KNOBS) {
     const fromSettings = usable(s[key]);
     if (fromSettings) { out[key] = fromSettings; continue; }
-    const fromEnv = envName ? usable(e[envName]) : "";
+    const envNames = Array.isArray(envName) ? envName : (envName ? [envName] : []);
+    const fromEnv = envNames.map((name) => usable(e[name])).find(Boolean) || "";
     if (fromEnv) { out[key] = fromEnv; continue; }
     out[key] = BUILTIN_DEFAULTS[key];
   }

@@ -20,14 +20,23 @@
   .bar.red > i { background: #ff5e5e; }
   #weekly { margin-top: 6px; opacity: 0.9; }
   #state { font-size: 12px; opacity: 0.8; padding: 6px 0; }
+  #codex { margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(255,255,255,0.1); }
+  .codex-row { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
+  .codex-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.28); box-shadow: 0 0 0 3px rgba(255,255,255,0.06); }
+  .codex-dot.ok { background: #5ee3a1; }
+  .codex-title { font-size: 12px; font-weight: 650; line-height: 1.2; }
+  .codex-msg { margin-top: 3px; font-size: 11px; line-height: 1.25; opacity: 0.65; }
+  .codex-windows { margin-top: 2px; }
+  .codex-windows .row { margin-top: 7px; }
   .hidden { display: none; }
 </style></head>
 <body>
 <div id="card">
-  <div id="head"><span id="title">Claude 用量</span><button id="refresh" title="刷新">↻</button></div>
+  <div id="head"><span id="title">AI 用量</span><button id="refresh" title="刷新">↻</button></div>
   <div id="state" class="hidden"></div>
   <div id="primary" class="hidden"></div>
   <div id="weekly" class="hidden"></div>
+  <div id="codex" class="hidden"></div>
 </div>
 <script src="quota-popup-renderer.js"></script>
 </body></html>

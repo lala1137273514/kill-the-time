@@ -82,6 +82,12 @@ function createNarrator(opts = {}) {
   }
 
   function handleChat(event) {
+    if (event.kind === "supervisor" || event.kind === "speech" || event.kind === "tts") {
+      return {
+        card: { mode: "speech", text: event.text, status: "Clawd 旁白" },
+        speak: event.text,
+      };
+    }
     // The assistant's reply: show it AND say it.
     return { card: { mode: "chat", text: event.text }, speak: event.text };
   }

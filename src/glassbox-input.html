@@ -4,43 +4,136 @@
 <meta charset="utf-8" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background: transparent; overflow: hidden; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  html, body {
+    background: transparent;
+    overflow: hidden;
+    font-family: "Segoe UI Variable", "Segoe UI", -apple-system, BlinkMacSystemFont,
+      "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+    color: rgba(248, 250, 252, 0.96);
+    -webkit-font-smoothing: antialiased;
+  }
+  :root {
+    --panel: rgba(24, 28, 34, 0.80);
+    --panel-border: rgba(255, 255, 255, 0.14);
+    --panel-top: rgba(255, 255, 255, 0.24);
+    --field: rgba(255, 255, 255, 0.075);
+    --field-focus: rgba(255, 255, 255, 0.105);
+    --muted: rgba(226, 232, 240, 0.60);
+    --accent: #7dd3fc;
+    --accent-soft: rgba(125, 211, 252, 0.18);
+  }
   #box {
     margin: 8px;
-    background: rgba(28, 28, 30, 0.97);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    padding: 14px;
-    box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
+    background: linear-gradient(180deg, rgba(255,255,255,0.08), transparent 45%), var(--panel);
+    -webkit-backdrop-filter: saturate(175%) blur(22px);
+    backdrop-filter: saturate(175%) blur(22px);
+    border: 1px solid var(--panel-border);
+    border-top-color: var(--panel-top);
+    border-radius: 12px;
+    padding: 10px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38), 0 2px 0 rgba(255,255,255,0.05) inset;
     -webkit-app-region: drag;
   }
-  #row { display: flex; gap: 10px; align-items: stretch; -webkit-app-region: no-drag; }
+  #row {
+    display: grid;
+    grid-template-columns: 1fr 38px;
+    gap: 8px;
+    align-items: stretch;
+    -webkit-app-region: no-drag;
+  }
   #ta {
-    flex: 1; min-height: 60px; max-height: 150px; resize: none;
-    border: none; outline: none; border-radius: 10px; padding: 10px 12px;
-    font-size: 15px; line-height: 1.5; color: #fff; background: rgba(255, 255, 255, 0.08);
+    width: 100%;
+    min-height: 58px;
+    max-height: 150px;
+    resize: none;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    outline: none;
+    border-radius: 8px;
+    padding: 10px 11px;
+    font-size: 14px;
+    line-height: 1.45;
+    color: rgba(248, 250, 252, 0.96);
+    background: var(--field);
+    caret-color: var(--accent);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
+    transition: background 130ms ease, border-color 130ms ease, box-shadow 130ms ease;
   }
-  #ta::placeholder { color: rgba(255, 255, 255, 0.38); }
+  #ta:focus {
+    background: var(--field-focus);
+    border-color: rgba(125, 211, 252, 0.36);
+    box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.09), 0 1px 0 rgba(255,255,255,0.05) inset;
+  }
+  #ta::placeholder { color: rgba(226, 232, 240, 0.42); }
   #mic {
-    width: 46px; border: none; border-radius: 12px; cursor: pointer; font-size: 20px;
-    background: rgba(255, 255, 255, 0.12); color: #fff; transition: background 120ms;
+    width: 38px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 8px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(248, 250, 252, 0.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease, color 120ms ease;
   }
-  #mic:hover { background: rgba(255, 255, 255, 0.2); }
-  #mic.rec { background: #ff4d4f; animation: pulse 1s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity: 0.5; } }
-  #status { margin-top: 9px; font-size: 12px; color: rgba(255, 255, 255, 0.55); min-height: 16px; -webkit-app-region: no-drag; }
-  #status.phase { color: rgba(255, 255, 255, 0.9); font-size: 13px; }
-  #box.live { border-color: rgba(120, 170, 255, 0.5); box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(120, 170, 255, 0.28); transition: box-shadow 160ms, border-color 160ms; }
-  kbd { background: rgba(255, 255, 255, 0.14); border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+  #mic svg {
+    width: 17px;
+    height: 17px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  #mic:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    transform: translateY(-1px);
+  }
+  #mic:active { transform: translateY(0) scale(0.97); }
+  #mic.rec {
+    background: rgba(255, 122, 138, 0.20);
+    border-color: rgba(255, 122, 138, 0.36);
+    color: #ffdce1;
+    animation: pulse 1s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { opacity: 0.62; } }
+  #status {
+    margin-top: 8px;
+    min-height: 16px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.3;
+    -webkit-app-region: no-drag;
+  }
+  #status.phase { color: rgba(248, 250, 252, 0.9); font-size: 12px; }
+  #box.live {
+    border-color: rgba(125, 211, 252, 0.40);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38), 0 0 0 1px var(--accent-soft), 0 2px 0 rgba(255,255,255,0.05) inset;
+    transition: box-shadow 160ms ease, border-color 160ms ease;
+  }
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    height: 15px;
+    padding: 0 5px 1px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.09);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(248, 250, 252, 0.82);
+    font-size: 10px;
+    font-family: inherit;
+  }
 </style>
 </head>
 <body>
 <div id="box">
   <div id="row">
     <textarea id="ta" placeholder="说点什么，或直接打字… 让 agent 去干"></textarea>
-    <button id="mic" title="语音输入">🎙</button>
+    <button id="mic" title="语音输入" aria-label="语音输入">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v5a4 4 0 0 0 4 4z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/><path d="M8 21h8"/></svg>
+    </button>
   </div>
-  <div id="status"><kbd>Enter</kbd> 执行 · <kbd>Esc</kbd> 关闭 · 点 🎙 说话，文字会填进来可改</div>
+  <div id="status"><kbd>Enter</kbd> 执行 · <kbd>Esc</kbd> 关闭 · 点麦克风说话，文字会填进来可改</div>
 </div>
 <script>
   const { ipcRenderer } = require("electron");
@@ -51,33 +144,78 @@
   function setStatus(t) { statusEl.innerHTML = t; }
   ta.focus();
 
-  let rec = null, stream = null, chunks = [];
+  let rec = null, stream = null, ac = null, source = null, silent = null, chunks = [];
+
+  function encodeWav(floatChunks, sampleRate) {
+    let len = 0;
+    for (const c of floatChunks) len += c.length;
+    const data = new Float32Array(len);
+    let off = 0;
+    for (const c of floatChunks) { data.set(c, off); off += c.length; }
+    const buffer = new ArrayBuffer(44 + data.length * 2);
+    const view = new DataView(buffer);
+    const write = (pos, s) => { for (let i = 0; i < s.length; i++) view.setUint8(pos + i, s.charCodeAt(i)); };
+    write(0, "RIFF"); view.setUint32(4, 36 + data.length * 2, true); write(8, "WAVE");
+    write(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    write(36, "data"); view.setUint32(40, data.length * 2, true);
+    let p = 44;
+    for (let i = 0; i < data.length; i++, p += 2) {
+      const s = Math.max(-1, Math.min(1, data[i]));
+      view.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return buffer;
+  }
+
+  function cleanupAudio() {
+    try { if (rec) rec.disconnect(); } catch {}
+    try { if (source) source.disconnect(); } catch {}
+    try { if (silent) silent.disconnect(); } catch {}
+    try { if (ac) ac.close(); } catch {}
+    try { if (stream) stream.getTracks().forEach((t) => t.stop()); } catch {}
+    rec = null; source = null; silent = null; ac = null; stream = null;
+  }
+
   async function startRec() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunks = [];
-      rec = new MediaRecorder(stream);
-      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-      rec.onstop = async () => {
-        mic.classList.remove("rec");
-        try {
-          const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
-          const buf = await blob.arrayBuffer();
-          setStatus("💭 识别中…（本地 whisper，CPU 要几十秒）");
-          ipcRenderer.send("glassbox-input-clip", { buffer: buf, mime: blob.type || "audio/webm" });
-        } catch (e) { setStatus("录音处理失败"); }
-        finally { if (stream) stream.getTracks().forEach((t) => t.stop()); }
+      ac = new AudioContext();
+      source = ac.createMediaStreamSource(stream);
+      rec = ac.createScriptProcessor(4096, 1, 1);
+      rec.onaudioprocess = (e) => {
+        chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
       };
-      rec.start();
+      silent = ac.createGain();
+      silent.gain.value = 0;
+      source.connect(rec);
+      rec.connect(silent);
+      silent.connect(ac.destination);
       mic.classList.add("rec");
       setStatus("🎙 在听… 再点一下 🎙 结束");
     } catch (e) { setStatus("麦克风打不开：" + (e && e.message || e)); }
   }
-  function stopRec() { if (rec && rec.state !== "inactive") rec.stop(); }
-  mic.onclick = () => { (rec && rec.state !== "inactive") ? stopRec() : startRec(); };
+  function stopRec() {
+    if (!rec) return;
+    mic.classList.remove("rec");
+    try {
+      const sampleRate = (ac && ac.sampleRate) || 48000;
+      const buf = encodeWav(chunks, sampleRate);
+      setStatus("识别中…");
+      ipcRenderer.send("glassbox-input-clip", { buffer: buf, mime: "audio/wav", sampleRate });
+    } catch (e) { setStatus("录音处理失败"); }
+    finally { cleanupAudio(); }
+  }
+  mic.onclick = () => { rec ? stopRec() : startRec(); };
 
   ipcRenderer.on("glassbox-input-transcript", (_e, p) => {
-    if (p && p.error) { setStatus("没听清，再试一次或直接打字"); ta.focus(); return; }
+    if (p && p.error) {
+      const msg = p.message ? String(p.message).replace(/^glassbox-asr:\s*/, "") : "没听清，再试一次或直接打字";
+      setStatus(msg);
+      ta.focus();
+      return;
+    }
     const t = (p && p.text || "").trim();
     if (t) {
       ta.value = ta.value ? (ta.value.replace(/\s+$/, "") + " " + t) : t;

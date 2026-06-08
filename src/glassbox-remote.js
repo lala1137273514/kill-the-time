@@ -56,15 +56,15 @@ class GlassboxRemote {
     // A function lets main resolve a sensible default at dispatch time (e.g. the
     // most-recent tracked session's cwd); falls back to the static defaultCwd.
     this.getDefaultCwd = typeof deps.getDefaultCwd === "function" ? deps.getDefaultCwd : () => this.defaultCwd;
+    this.getDefaultAgent = typeof deps.getDefaultAgent === "function" ? deps.getDefaultAgent : () => "claude";
     this.log = typeof deps.log === "function" ? deps.log : () => {};
     // Semantic phase callback for middle-state feedback (direction 1). The pet /
     // input bar map these phases to visible state; default no-op keeps it
     // optional and the branching unit-testable.
     this.onPhase = typeof deps.onPhase === "function" ? deps.onPhase : () => {};
-    // Dispatch confirm policy (direction 2b). Default: always confirm. main.js
-    // injects a policy-driven decision (glassbox-router) so e.g. read-only tasks
-    // can skip the dialog while writes still confirm.
-    this.shouldConfirm = typeof deps.shouldConfirm === "function" ? deps.shouldConfirm : () => true;
+    // Dispatch confirm policy. Default is agent-native: no extra pre-dispatch
+    // dialog; tool approvals stay in the agent's own permission flow.
+    this.shouldConfirm = typeof deps.shouldConfirm === "function" ? deps.shouldConfirm : () => false;
     // Multi-turn voice chat context (功能3). Injectable so main shares one buffer;
     // defaults to its own so the unit tests work standalone.
     this.conversation = deps.conversation || createConversation({});
@@ -144,6 +144,7 @@ class GlassboxRemote {
       decision,
       screenshotPath,
       defaultCwd: this.getDefaultCwd(),
+      defaultAgent: this.getDefaultAgent(),
       sessionIdle: sessionId ? !!this.getSessionIdle(sessionId) : false,
     });
 

@@ -8,7 +8,7 @@
 const path = require("path");
 
 const WIDTH = 260;
-const HEIGHT = 150;
+const HEIGHT = 248;
 const GAP = 8;
 const MARGIN = 8;
 const isWin = process.platform === "win32";

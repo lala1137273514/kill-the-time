@@ -2,6 +2,7 @@
 // Extracted from main.js L527-689
 
 const { screen } = require("electron");
+const { createIdleWander } = require("./idle-wander");
 
 module.exports = function initTick(ctx) {
 
@@ -20,6 +21,7 @@ let lastPointerBridgePayload = null;
 let mainTickTimer = null;
 let mainTickActive = false;
 let nextMainTickAt = 0;
+const idleWander = createIdleWander();
 
 const FAST_TICK_MS = 50;
 const BOOST_TICK_MS = 100;
@@ -141,6 +143,42 @@ function sendPointerBridge(cursor, bounds) {
   ctx.sendToRenderer("cloudling-pointer", payload);
 }
 
+function maybeIdleWander({ idleNow, elapsed, isMouseIdle, hasTriggeredYawn, bounds }) {
+  if (!idleNow) return false;
+  const allow = !!(
+    ctx.currentState === "idle"
+    && !ctx.dragLocked
+    && !ctx.menuOpen
+    && !ctx.miniMode
+    && !ctx.miniTransitioning
+    && !ctx.lowPowerIdlePaused
+    && !ctx.idlePaused
+    && !ctx.mouseOverPet
+    && !isMouseIdle
+    && !hasTriggeredYawn
+    && elapsed >= 2000
+    && typeof ctx.applyPetWindowBounds === "function"
+  );
+  return idleWander.tick({
+    allow,
+    bounds,
+    getBounds: () => (
+      typeof ctx.getPetWindowBounds === "function"
+        ? ctx.getPetWindowBounds()
+        : (ctx.win && !ctx.win.isDestroyed() ? ctx.win.getBounds() : null)
+    ),
+    clamp: (x, y, w, h) => (
+      typeof ctx.clampToScreenVisual === "function"
+        ? ctx.clampToScreenVisual(x, y, w, h)
+        : { x, y }
+    ),
+    move: (nextBounds) => {
+      ctx.applyPetWindowBounds(nextBounds);
+      if (typeof ctx.syncAfterPetWindowMove === "function") ctx.syncAfterPetWindowMove();
+    },
+  });
+}
+
 function shouldSuppressPassiveIpc() {
   return !!ctx.lowPowerIdlePaused && LOW_POWER_PAUSE_STATES.has(ctx.currentState);
 }
@@ -251,6 +289,7 @@ function runMainTickOnce() {
       }
 
       const elapsed = Date.now() - mouseStillSince;
+      maybeIdleWander({ idleNow, elapsed, isMouseIdle, hasTriggeredYawn, bounds });
 
       // Startup recovery: Claude Code is running but no hook yet — stay awake
       // Only suppress sleep sequence, don't skip eye tracking below

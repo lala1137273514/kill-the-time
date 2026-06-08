@@ -24,8 +24,9 @@ const AGENT_BY_ID = {
   codex: "codex",
 };
 
-function resolveAgent(agentId) {
-  return AGENT_BY_ID[agentId] || "claude";
+function resolveAgent(agentId, fallbackAgent) {
+  const fb = AGENT_BY_ID[fallbackAgent] || fallbackAgent;
+  return AGENT_BY_ID[agentId] || (fb === "codex" ? "codex" : "claude");
 }
 
 function commandFor(agent, opts = {}) {
@@ -46,8 +47,8 @@ function appendScreenshot(prompt, screenshotPath) {
 // planDispatch({ window, decision, screenshotPath, defaultCwd, sessionIdle })
 //   -> { agent, mode: "resume"|"new", sessionId, cwd, prompt }
 // Only claude supports resume here; codex always runs a fresh exec.
-function planDispatch({ window = {}, decision = {}, screenshotPath = "", defaultCwd = null, sessionIdle = false } = {}) {
-  const agent = resolveAgent(window.agentId);
+function planDispatch({ window = {}, decision = {}, screenshotPath = "", defaultCwd = null, sessionIdle = false, defaultAgent = "claude" } = {}) {
+  const agent = resolveAgent(window.agentId, defaultAgent);
   const canResume = agent === "claude" && !!window.sessionId && sessionIdle === true;
   const mode = canResume ? "resume" : "new";
   const sessionId = canResume ? window.sessionId : null;
@@ -56,20 +57,19 @@ function planDispatch({ window = {}, decision = {}, screenshotPath = "", default
   return { agent, mode, sessionId, cwd, prompt };
 }
 
-// The prompt is fed over stdin (see dispatch), NOT as a CLI arg — long/CJK
+// Claude's prompt is fed over stdin (see dispatch), NOT as a CLI arg — long/CJK
 // prompts with quotes would otherwise be mangled. So args carry only safe,
-// short flags. The dispatched run is headless and the user already confirmed
-// it, so claude runs with permissions bypassed; otherwise its first tool use
-// hangs forever on a permission prompt nobody can answer. Overridable via
-// CLAWD_DISPATCH_PERMISSION_MODE (e.g. acceptEdits, default, plan).
+// short flags. Permission defaults to the agent's normal/native flow: the pet is
+// the supervisor that assigns work; tool approvals remain owned by the agent.
 function dispatchPermissionMode(override) {
   const o = typeof override === "string" ? override.trim() : "";
-  return o || process.env.CLAWD_DISPATCH_PERMISSION_MODE || "bypassPermissions";
+  return o || process.env.CLAWD_DISPATCH_PERMISSION_MODE || "default";
 }
 
 function buildArgs(plan = {}) {
   if (plan.agent === "codex") {
-    return ["exec"];
+    const prompt = String(plan.prompt || "").trim();
+    return prompt ? ["exec", prompt] : ["exec"];
   }
   const perm = ["--permission-mode", dispatchPermissionMode(plan.permissionMode)];
   if (plan.mode === "resume" && plan.sessionId) {
@@ -110,9 +110,9 @@ function dispatch(plan = {}, opts = {}) {
     shell: false,
     windowsHide: true,
     detached: false,
-    // stdin is always piped so we can feed the prompt over it (avoids shell
-    // arg-escaping). stdout/stderr piped only when a completion callback wants it.
-    stdio: ["pipe", wantOutput ? "pipe" : "ignore", wantOutput ? "pipe" : "ignore"],
+    // stdin is piped only for Claude so we can feed the prompt over it (avoids
+    // shell arg-escaping). Codex receives the prompt as an explicit exec arg.
+    stdio: [plan.agent === "codex" ? "ignore" : "pipe", wantOutput ? "pipe" : "ignore", wantOutput ? "pipe" : "ignore"],
     env: opts.env || process.env,
   };
   const child = spawnFn(command, args, spawnOpts);
@@ -121,14 +121,16 @@ function dispatch(plan = {}, opts = {}) {
   const swallow = () => {};
   if (child && typeof child.on === "function") child.on("error", swallow);
 
-  // Feed the prompt over stdin, then close it so the agent starts.
-  try {
-    if (child && child.stdin && typeof child.stdin.write === "function") {
-      child.stdin.on && child.stdin.on("error", swallow); // ignore EPIPE
-      child.stdin.write(prompt);
-      child.stdin.end();
-    }
-  } catch {}
+  if (plan.agent !== "codex") {
+    // Feed the prompt over stdin, then close it so the agent starts.
+    try {
+      if (child && child.stdin && typeof child.stdin.write === "function") {
+        child.stdin.on && child.stdin.on("error", swallow); // ignore EPIPE
+        child.stdin.write(prompt);
+        child.stdin.end();
+      }
+    } catch {}
+  }
 
   if (wantOutput) {
     let output = "";

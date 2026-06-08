@@ -78,6 +78,8 @@ function createHarness(overrides = {}) {
     focusSession: (sessionId, options) => calls.push(["focusSession", sessionId, options]),
     setLowPowerIdlePaused: (value) => calls.push(["setLowPowerIdlePaused", value]),
     revealSessionHud: () => calls.push(["revealSessionHud"]),
+    onDragReactionStart: (direction) => calls.push(["onDragReactionStart", direction]),
+    onDragEnd: () => calls.push(["onDragEnd"]),
   });
   return { ipcMain, runtime, calls, state };
 }
@@ -138,6 +140,7 @@ test("pet interaction IPC delegates menu, drag move, reaction pause, and rendere
     ["setLowPowerIdlePaused", true],
     ["setLowPowerIdlePaused", false],
     ["setIdlePaused", false],
+    ["onDragReactionStart", null],
     ["sendToRenderer", "start-drag-reaction", null],
     ["sendToRenderer", "end-drag-reaction"],
     ["sendToRenderer", "play-click-reaction", "click.svg", 900],
@@ -152,8 +155,11 @@ test("pet interaction IPC relays only supported drag directions", () => {
   ipcMain.send("start-drag-reaction", "up");
 
   assert.deepStrictEqual(calls, [
+    ["onDragReactionStart", "left"],
     ["sendToRenderer", "start-drag-reaction", "left"],
+    ["onDragReactionStart", "right"],
     ["sendToRenderer", "start-drag-reaction", "right"],
+    ["onDragReactionStart", null],
     ["sendToRenderer", "start-drag-reaction", null],
   ]);
 });
@@ -189,6 +195,7 @@ test("pet interaction IPC finalizes drag end and always clears drag state", () =
     ["scheduleHwndRecovery"],
     ["syncHitWin"],
     ["repositionFloatingBubbles"],
+    ["onDragEnd"],
     ["setDragLocked", false],
     ["clearDragSnapshot"],
     ["checkMiniModeSnap"],
@@ -198,6 +205,7 @@ test("pet interaction IPC finalizes drag end and always clears drag state", () =
     ["scheduleHwndRecovery"],
     ["syncHitWin"],
     ["repositionFloatingBubbles"],
+    ["onDragEnd"],
     ["setDragLocked", false],
     ["clearDragSnapshot"],
   ]);
@@ -215,6 +223,7 @@ test("pet interaction IPC skips drag-end clamp when mini snap starts", () => {
 
   assert.deepStrictEqual(calls, [
     ["checkMiniModeSnap"],
+    ["onDragEnd"],
     ["setDragLocked", false],
     ["clearDragSnapshot"],
   ]);
@@ -229,6 +238,7 @@ test("pet interaction IPC still clears drag state when drag end has no live pet 
 
   assert.deepStrictEqual(calls, [
     ["checkMiniModeSnap"],
+    ["onDragEnd"],
     ["setDragLocked", false],
     ["clearDragSnapshot"],
   ]);

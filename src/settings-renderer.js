@@ -2,7 +2,7 @@
 
 const core = globalThis.ClawdSettingsCore;
 
-const SIDEBAR_TABS = [
+const FULL_SIDEBAR_TABS = [
   { id: "general", icon: "\u2699", labelKey: "sidebarGeneral", available: true },
   { id: "agents", icon: "\u26A1", labelKey: "sidebarAgents", available: true },
   { id: "theme", icon: "\u{1F3A8}", labelKey: "sidebarTheme", available: true },
@@ -16,11 +16,23 @@ const SIDEBAR_TABS = [
   { id: "about", icon: "\u2139", labelKey: "sidebarAbout", available: true },
 ];
 
+const DEMO_SIDEBAR_TABS = [
+  { id: "glassbox", icon: "\u25C9", label: "模型语音", available: true },
+  { id: "general", icon: "\u25CE", label: "宠物行为", available: true },
+  { id: "agents", icon: "\u25C7", label: "Agent 连接", available: true },
+];
+const DEMO_SETTINGS_MODE = !!(window.settingsAPI && window.settingsAPI.demoSettingsMode === true);
+const SIDEBAR_TABS = DEMO_SETTINGS_MODE ? DEMO_SIDEBAR_TABS : FULL_SIDEBAR_TABS;
+const VISIBLE_TAB_IDS = new Set(SIDEBAR_TABS.map((tab) => tab.id));
+if (DEMO_SETTINGS_MODE) core.state.activeTab = "glassbox";
+
 function renderSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
   sidebar.innerHTML = "";
   if (
+    !DEMO_SETTINGS_MODE
+    &&
     globalThis.ClawdSettingsDoctorModal
     && typeof globalThis.ClawdSettingsDoctorModal.renderSidebarIndicator === "function"
   ) {
@@ -33,7 +45,7 @@ function renderSidebar() {
     if (tab.id === core.state.activeTab) item.classList.add("active");
     item.innerHTML =
       `<span class="sidebar-item-icon">${tab.icon}</span>` +
-      `<span class="sidebar-item-label">${core.helpers.escapeHtml(core.helpers.t(tab.labelKey))}</span>` +
+      `<span class="sidebar-item-label">${core.helpers.escapeHtml(tab.label || core.helpers.t(tab.labelKey))}</span>` +
       (tab.available ? "" : `<span class="sidebar-item-soon">${core.helpers.escapeHtml(core.helpers.t("sidebarSoon"))}</span>`);
     if (tab.available) {
       item.addEventListener("click", () => {
@@ -86,6 +98,13 @@ if (globalThis.ClawdSettingsTabGlassbox) globalThis.ClawdSettingsTabGlassbox.ini
 
 if (window.settingsAPI && typeof window.settingsAPI.onChanged === "function") {
   window.settingsAPI.onChanged((payload) => core.ops.applyChanges(payload));
+}
+
+if (window.settingsAPI && typeof window.settingsAPI.onSelectTab === "function") {
+  window.settingsAPI.onSelectTab((payload) => {
+    const tabId = payload && payload.tabId;
+    if (tabId && core.tabs[tabId] && (!DEMO_SETTINGS_MODE || VISIBLE_TAB_IDS.has(tabId))) core.ops.selectTab(tabId);
+  });
 }
 
 if (window.settingsAPI && typeof window.settingsAPI.onAnimationPreviewPosterReady === "function") {

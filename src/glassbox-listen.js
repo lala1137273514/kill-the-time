@@ -30,10 +30,10 @@ class GlassboxListener {
   }
 
   // Process one recorded clip. Returns the routed decision (or {action:"error"}).
-  async onUtterance(wavPath) {
+  async onUtterance(wavPath, opts = {}) {
     let text;
     try {
-      text = await this.transcribe(wavPath);
+      text = await this.transcribe(wavPath, opts);
     } catch (err) {
       this.log(`glassbox-listen: transcribe failed: ${err && err.message}`);
       try { this.onError(err); } catch {}

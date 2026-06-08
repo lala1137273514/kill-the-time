@@ -76,6 +76,11 @@
   }
 
   function render(parent) {
+    if (window.settingsAPI && window.settingsAPI.demoSettingsMode === true) {
+      renderDemo(parent);
+      return;
+    }
+
     const h1 = document.createElement("h1");
     h1.textContent = t("settingsTitle");
     parent.appendChild(h1);
@@ -157,6 +162,43 @@
         key: "bubbleFollowPet",
         labelKey: "rowBubbleFollow",
         descKey: "rowBubbleFollowDesc",
+      }),
+    ]));
+  }
+
+  function renderDemo(parent) {
+    const h1 = document.createElement("h1");
+    h1.textContent = "宠物行为";
+    parent.appendChild(h1);
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "subtitle";
+    subtitle.textContent = "只保留展示桌宠体验需要的外观、动画性能和停靠行为。";
+    parent.appendChild(subtitle);
+
+    parent.appendChild(helpers.buildSection("外观与动画", [
+      buildSizeSliderRow(),
+      buildSoundGroup(),
+      helpers.buildSwitchRow({
+        key: "lowPowerIdleMode",
+        labelKey: "rowLowPowerIdleMode",
+        descKey: "rowLowPowerIdleModeDesc",
+      }),
+      helpers.buildSwitchRow({
+        key: "keepAwakeWhileWorking",
+        labelKey: "rowKeepAwakeWhileWorking",
+        descKey: "rowKeepAwakeWhileWorkingDesc",
+      }),
+      buildFlashGroup(),
+      helpers.buildSwitchRow({
+        key: "allowEdgePinning",
+        labelKey: "rowAllowEdgePinning",
+        descKey: "rowAllowEdgePinningDesc",
+      }),
+      helpers.buildSwitchRow({
+        key: "keepSizeAcrossDisplays",
+        labelKey: "rowKeepSizeAcrossDisplays",
+        descKey: "rowKeepSizeAcrossDisplaysDesc",
       }),
     ]));
   }

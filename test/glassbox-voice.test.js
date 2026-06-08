@@ -96,6 +96,21 @@ describe("glassbox-voice GlassboxVoice", () => {
     assert.strictEqual(v.speaking, false);
   });
 
+  it("honors fixed-event narration switches", async () => {
+    const seen = [];
+    const { deps: d, plays } = deps({
+      shouldSpeakMilestone: (m) => {
+        seen.push(m);
+        return m !== "start";
+      },
+    });
+    const v = new GlassboxVoice(d);
+    v.onSnapshot(snap([{ id: "a", badge: "running" }], "a"));
+    assert.deepStrictEqual(seen, ["start"]);
+    assert.strictEqual(v._inflight, null);
+    assert.strictEqual(plays.length, 0);
+  });
+
   it("validates required deps", () => {
     assert.throws(() => new GlassboxVoice({ play: () => {} }), /synth/);
     assert.throws(() => new GlassboxVoice({ synth: async () => {} }), /play/);
