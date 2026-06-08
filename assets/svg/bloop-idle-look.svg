@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-15 -25 45 45" width="500" height="500">
+  <defs><style>
+    /* Calm idle: gentle breathe, eyes glance left then right */
+    #body-js { transform-origin: 7.5px 16px; animation: bloop-breathe 3.4s ease-in-out infinite; }
+    #eyes-js { animation: bloop-glance 6.5s ease-in-out infinite; }
+    .lid { transform-box: fill-box; transform-origin: top center; animation: bloop-blink 6.5s infinite; }
+    @keyframes bloop-breathe { 0%,100% { transform: scale(1,1); } 50% { transform: scale(1.04,0.95); } }
+    @keyframes bloop-glance { 0%,18%,82%,100% { transform: translateX(0); } 30%,42% { transform: translateX(-1.4px); } 55%,70% { transform: translateX(1.4px); } }
+    @keyframes bloop-blink { 0%,30%,33%,68%,71%,100% { transform: scaleY(0); } 31%,32%,69%,70% { transform: scaleY(1); } }
+  </style></defs>
+  <ellipse id="shadow-js" cx="7.5" cy="16.2" rx="7" ry="1.1" fill="#000000" opacity="0.32"/>
+  <g id="body-js">
+    <rect x="1" y="7.5" width="13" height="8.6" rx="4.3" fill="#4fd1b5"/>
+    <rect x="2" y="8" width="11" height="3" rx="2.6" fill="#7fe8d2" opacity="0.65"/>
+    <circle cx="3.5" cy="12.8" r="0.9" fill="#ff9bb0" opacity="0.55"/>
+    <circle cx="11.5" cy="12.8" r="0.9" fill="#ff9bb0" opacity="0.55"/>
+    <rect x="4" y="10.3" width="2.6" height="3" rx="1.3" fill="#ffffff"/>
+    <rect x="8.4" y="10.3" width="2.6" height="3" rx="1.3" fill="#ffffff"/>
+    <g id="eyes-js" fill="#1f3a36">
+      <circle cx="5.3" cy="11.9" r="0.9"/>
+      <circle cx="9.7" cy="11.9" r="0.9"/>
+    </g>
+    <rect class="lid" x="4" y="10.3" width="2.6" height="3" rx="1.3" fill="#4fd1b5"/>
+    <rect class="lid" x="8.4" y="10.3" width="2.6" height="3" rx="1.3" fill="#4fd1b5"/>
+    <path d="M6.4 14.1 q1.1 0.9 2.2 0" stroke="#1f3a36" stroke-width="0.5" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

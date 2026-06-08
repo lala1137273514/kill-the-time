@@ -50,9 +50,14 @@
   },
   "sleepingHitboxFiles": ["bloop-sleeping.svg"],
   "reactions": {
+    "drag": { "file": "bloop-react-drag.svg" },
     "clickLeft": { "file": "bloop-attention.svg", "duration": 2000 },
     "clickRight": { "file": "bloop-attention.svg", "duration": 2000 }
   },
+  "idleAnimations": [
+    { "file": "bloop-idle-look.svg", "duration": 6500 },
+    { "file": "bloop-idle-stretch.svg", "duration": 14000 }
+  ],
   "miniMode": { "supported": false },
   "objectScale": { "widthRatio": 1.9, "heightRatio": 1.3, "offsetX": -0.45, "offsetY": -0.25 }
 }
