@@ -45,6 +45,7 @@ function computeCardBounds({ petBounds, workArea, width, height, gap = GAP, marg
 
 function initGlassboxCard(ctx = {}) {
   let card = null;
+  let hideTimer = null;
 
   function ensure() {
     if (card && !card.isDestroyed()) return card;
@@ -72,6 +73,7 @@ function initGlassboxCard(ctx = {}) {
 
   function render(payload) {
     if (ctx.petHidden) return;
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
     const win = ensure();
     // Permission mode needs the buttons to be clickable, so the card grabs
     // focus; every other mode stays inactive so it never steals the user's
@@ -90,9 +92,18 @@ function initGlassboxCard(ctx = {}) {
     };
     if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
     else send();
+    // Auto-dismiss so the card never sticks. Permission stays until resolved;
+    // a terminal status clears fast; everything else has a safety-net timeout.
+    const m = payload && payload.mode;
+    const delay = m === "permission" ? 0
+      : (m === "status" && payload && payload.terminal) ? 2500
+      : m === "chat" ? 6000
+      : 8000;
+    if (delay > 0) hideTimer = setTimeout(hide, delay);
   }
 
   function hide() {
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
     if (card && !card.isDestroyed()) {
       try { card.webContents.send("glassbox-card-hide"); } catch {}
       try { card.setFocusable(false); } catch {}
@@ -103,6 +114,7 @@ function initGlassboxCard(ctx = {}) {
   function reposition() { position(); }
 
   function cleanup() {
+    if (hideTimer) clearTimeout(hideTimer);
     if (card && !card.isDestroyed()) card.destroy();
     card = null;
   }
