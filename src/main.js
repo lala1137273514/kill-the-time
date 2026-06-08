@@ -3592,6 +3592,24 @@ if (!gotTheLock) {
         setTimeout(() => runGlassboxDemo({ loop: true }), 3000);
       }
 
+      // First-run hint (once): tell the user how to talk to the pet. Skipped in
+      // demo mode. A marker file in userData gates it to a single appearance.
+      if (process.env.CLAWD_GLASSBOX_DEMO !== "1") {
+        try {
+          const mark = path.join(app.getPath("userData"), ".glassbox-onboarded");
+          if (!fs.existsSync(mark)) {
+            setTimeout(() => {
+              try {
+                const hk = (_glassboxCfg().hotkey || "CommandOrControl+Space").replace(/CommandOrControl|Command|Control/g, "Ctrl");
+                if (_glassboxBubble) _glassboxBubble.showPhase({ emoji: "👋", status: `按 ${hk} 跟我说话`, terminal: false });
+                setTimeout(() => { try { _glassboxBubble && _glassboxBubble.hide(); } catch {} }, 7000);
+              } catch {}
+            }, 3500);
+            try { fs.writeFileSync(mark, String(Date.now())); } catch {}
+          }
+        } catch {}
+      }
+
       // Wake word "hey, cc": the hidden listener window ships gated clips here;
       // transcribe (local whisper) + match -> open the bar. Default OFF.
       ipcMain.on("glassbox-wake-clip", (_evt, payload) => {

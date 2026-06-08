@@ -21,28 +21,29 @@ clawd 由此**第一次拥有了自己的轻模型脑**（百炼 qwen），定�
 | **Phase 2 遥控器** | 文字/语音 → 编排 → 派活 → 回执 | ✅ **真机跑通** |
 | 输入框入口 | Ctrl+Space 弹 Spotlight 输入框（替代不可控的纯语音 VAD） | ✅ 真机跑通 |
 
-**已用真 key + 真 claude 端到端验证**：输入"读 package.json 的 name" → 编排判 dispatch → 派 `claude -p` → ~20 秒返回 "name 是 clawd-on-desk"。
-测试：`npm test` 全量 **3599 通过 / 0 失败**（3 个 pre-existing skip；偶发 settings-ipc EPERM 是 Windows tmp 竞态，重跑即过）。
+**已用真 key 端到端验证**：输入框打字 → 编排(qwen)判 chat/dispatch → chat 直接 TTS 念回复；dispatch 派 `claude -p`，监工边干边念（在装依赖…/动了几个文件/在跑测试/搞定）。
+测试：`npm test` 全量 **3758 通过 / 0 失败**（3 个 pre-existing skip；偶发进程枚举/EPERM 是沙箱竞态，重跑即过）。
+
+**本轮新增（全部已落地、测试覆盖、真机验证）**：玻璃盒默认开启（不再需要环境变量）+ `.env` 加载 key；监工深版（念派活真实进度）；桌宠阶段状态 + 思路气泡 + 完成撒彩屑；一键 Demo（Ctrl+Shift+D）；确认策略路由；唤醒词 "hey, cc"（默认关）；设置面板（原生样式 + 5 语言）；新角色 **Bloop**（手绘 CSS 动画）；首次启动引导。
 
 ## 3. 怎么跑 / 验证
 
-**总开关 + 依赖（PowerShell，启动前 set）：**
+**最简跑法**：把百炼 key 放进项目根 `.env`（照 `.env.example`），然后 `npm start`。玻璃盒**默认开启**，无需任何环境变量。
 
 ```powershell
-$env:CLAWD_GLASSBOX_VOICE = "1"                  # 总开关，不开则整条链路 inert
-$env:BAILIAN_API_KEY = "<百炼key>"               # orchestrator(qwen) + TTS 共用；key 在 C:\Users\QYL\Desktop\loona-live\.env
-$env:CLAWD_WHISPER_BIN = "<faster-whisper-xxl.exe 路径>"  # STT 二进制
-$env:CLAWD_WHISPER_MODEL = "base"                # small 在 CPU 上要 ~90s，base 快很多
-$env:CLAWD_SKIP_SIDECAR_FETCH = "1"              # 跳过无关的 Telegram sidecar 下载
-npm start
+copy .env.example .env       # 然后编辑 .env，填 BAILIAN_API_KEY=sk-...
+npm start                    # 玻璃盒默认开；Ctrl+Space 唤起输入框
 ```
+
+语音输入（🎙）还需要本地 whisper：`.env` 里加 `CLAWD_WHISPER_BIN`（faster-whisper-xxl.exe 路径）；只打字派活则不需要。要回退成原版 clawd 设 `CLAWD_GLASSBOX_DISABLE=1`。
 
 **环境变量全表：**
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
-| `CLAWD_GLASSBOX_VOICE` | (off) | 总开关，必须 `=1` |
-| `BAILIAN_API_KEY` | — | 百炼 qwen 编排 + TTS（DASHSCOPE_API_KEY 也认） |
+| `CLAWD_GLASSBOX_VOICE` | (默认已开) | 强制开 voice（向后兼容；现在默认就开，不用设） |
+| `CLAWD_GLASSBOX_DISABLE` | — | `=1` 回退原版 clawd（关掉整条链路） |
+| `BAILIAN_API_KEY` | — | 百炼 qwen 编排 + TTS；**放项目根 `.env` 即可**（DASHSCOPE_API_KEY 也认） |
 | `CLAWD_WHISPER_BIN` | — | faster-whisper-xxl.exe（STT） |
 | `CLAWD_WHISPER_MODEL` | small | whisper 模型（base/tiny 更快） |
 | `CLAWD_GLASSBOX_HOTKEY` | `CommandOrControl+Space` | 唤起输入框（可能撞输入法，撞了就改） |
@@ -110,7 +111,9 @@ Ctrl+Space ─▶ toggleGlassboxInput (main.js) ─▶ glassbox-input.html(可�
 7. **百炼这把 key 的实时 ASR 全部 AccessDenied**，所以 STT 只能本地 whisper；TTS（qwen3-tts-flash）不受影响。
 8. **架构诚实**：clawd 不能往**正在运行的 TUI** 注入（spec §2），派活一律 spawn 新 run；approve/deny 复用真权限通道；clarification answer 进剪贴板不伪造。
 
-## 6. 升级路线图（用户提的 4 个方向 + 落点建议）
+## 6. 升级路线图（用户提的 4 个方向）
+
+> **状态：①②③④ 全部已落地。** ①中间态反馈（思路气泡+阶段状态）+唤醒词"hey, cc"；②提示词外置+监工深版（念派活真实进度）+确认策略路由；③桌宠状态多样+新角色 Bloop；④设置面板（原生+5语言、旋钮真生效）。下面保留原始落点供参考。
 
 ### ① 交互：中间态反馈 + 语音唤醒 "hey, cc"
 - **中间态缺失**（当前痛点）：提交后到结果之间桌宠/输入框无反馈。
