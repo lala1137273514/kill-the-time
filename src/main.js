@@ -1232,6 +1232,7 @@ _glassboxHud = _initGlassboxHud({
   getPetWindowBounds,
   getNearestWorkArea,
   get petHidden() { return petWindowRuntime.isPetHidden(); },
+  getUsage: (o) => (_quota ? _quota.getUsage(o) : Promise.resolve({ status: "loading" })),
 });
 ipcMain.on("pet-hover-enter", () => { try { if (_glassboxHud) _glassboxHud.show(); } catch {} });
 ipcMain.on("pet-hover-leave", () => { try { if (_glassboxHud) _glassboxHud.scheduleDismiss(); } catch {} });
@@ -1244,7 +1245,6 @@ ipcMain.on("glassbox-hud-action", (_e, id) => {
       case "pomodoro": pomodoroStart("focus"); break;
       case "dashboard": showDashboard(); break;
       case "settings": settingsWindowRuntime.open(); break;
-      case "close": if (_glassboxHud) _glassboxHud.hide(); break;
     }
   } catch {}
 });

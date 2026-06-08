@@ -1,51 +1,41 @@
 "use strict";
 
-// Hover HUD — a TermiPet-style action toolbar that slides out beside the pet on
-// hover (item 4). A separate frameless transparent always-on-top window (same
-// family as glassbox-bubble/card), focusable:false so it never steals the user's
-// window but still receives clicks on Windows.
+// Hover HUD — a TermiPet-style panel that slides up ABOVE the pet on hover: a
+// compact usage strip + an icon action toolbar, in one window (one hover zone,
+// no flicker). A separate frameless transparent always-on-top window (family of
+// glassbox-bubble/card), focusable:false so it never steals focus but still
+// clicks on Windows. Auto-dismisses on leave (no close button).
 //
-// Cross-window hover: the pet's hit window reports pet enter/leave, this window
+// Cross-window hover: the pet hit window reports pet enter/leave, this window
 // reports its own enter/leave; main funnels both into show()/scheduleDismiss()/
-// cancelDismiss(). A single delayed dismiss timer bridges the pet→HUD gap so the
-// HUD never flickers while the cursor travels between them.
+// cancelDismiss(); a short delayed dismiss bridges the pet→HUD gap.
 //
-// Positioning is a pure, unit-tested helper: anchored to the SIDE of the pet
-// (right if room, else left), vertically centered, clamped — never covers the pet.
+// Positioning is a pure unit-tested helper: centered ABOVE the pet, flip below
+// when there's no room, clamped — mirrors the bubble/card.
 
 const path = require("path");
 
-const WIDTH = 276;
-const HEIGHT = 84; // toolbar row + headroom so the hover tooltip isn't clipped
-const GAP = 10;
+const WIDTH = 240;
+const HEIGHT = 110;        // usage strip + toolbar row
+const GAP = 8;
 const MARGIN = 8;
-const DISMISS_MS = 160;     // delay before collapse after leaving the combined zone
-const COLLAPSE_MS = 200;    // time for the renderer's collapse animation before we hide
+const DISMISS_MS = 140;    // snappy: delay before collapse after leaving the zone
+const COLLAPSE_MS = 150;   // matches the renderer's collapse animation
 const isWin = process.platform === "win32";
 const isMac = process.platform === "darwin";
 
-// Anchor beside the pet's VISIBLE portion: right if it fits, else left; centered
-// vertically; clamped to the work area so it never spills off-screen. Pure.
+// Centered above the pet's visible portion; flip below if no room; clamp. Pure.
 function computeHudBounds({ petBounds, workArea, width, height, gap = GAP, margin = MARGIN }) {
   const visLeft = Math.max(petBounds.x, workArea.x);
   const visRight = Math.min(petBounds.x + petBounds.width, workArea.x + workArea.width);
-  const visTop = Math.max(petBounds.y, workArea.y);
-  const visBottom = Math.min(petBounds.y + petBounds.height, workArea.y + workArea.height);
-
-  const rightX = visRight + gap;
-  let x;
-  if (rightX + width <= workArea.x + workArea.width - margin) {
-    x = rightX; // room on the right
-  } else {
-    const leftX = visLeft - gap - width;
-    x = leftX >= workArea.x + margin ? leftX : rightX; // prefer left; clamp handles overflow
-  }
-  x = Math.round(Math.max(workArea.x + margin, Math.min(x, workArea.x + workArea.width - width - margin)));
-
-  const cy = (visTop + visBottom) / 2;
-  let y = Math.round(cy - height / 2);
-  y = Math.max(workArea.y + margin, Math.min(y, workArea.y + workArea.height - height - margin));
-
+  const cx = visRight > visLeft ? (visLeft + visRight) / 2 : petBounds.x + petBounds.width / 2;
+  let x = Math.round(cx - width / 2);
+  x = Math.max(workArea.x + margin, Math.min(x, workArea.x + workArea.width - width - margin));
+  const aboveY = petBounds.y - gap - height;
+  let y = aboveY >= workArea.y + margin
+    ? aboveY
+    : Math.min(petBounds.y + petBounds.height + gap, workArea.y + workArea.height - height - margin);
+  y = Math.max(workArea.y + margin, y);
   return { x, y, width, height };
 }
 
@@ -93,12 +83,18 @@ function initGlassboxHud(ctx = {}) {
         try { w.showInactive(); } catch {}
         try { w.webContents.send("glassbox-hud-show"); } catch {}
       }
+      // Usage strip data (cached, cheap) — pushed in so it shows with the toolbar.
+      if (typeof ctx.getUsage === "function" && w && !w.isDestroyed()) {
+        Promise.resolve(ctx.getUsage({})).then((u) => {
+          try { if (w && !w.isDestroyed()) w.webContents.send("glassbox-hud-usage", u); } catch {}
+        }).catch(() => {});
+      }
     };
     if (w.webContents.isLoading()) w.webContents.once("did-finish-load", send);
     else send();
   }
 
-  // Start the delayed collapse (combined-zone leave). Cancelled by any re-enter.
+  // Delayed collapse (combined-zone leave). Cancelled by any re-enter.
   function scheduleDismiss() {
     cancelDismiss();
     dismissTimer = setTimeout(hide, DISMISS_MS);
@@ -107,7 +103,7 @@ function initGlassboxHud(ctx = {}) {
   function hide() {
     cancelDismiss();
     if (!win || win.isDestroyed()) return;
-    try { win.webContents.send("glassbox-hud-hide"); } catch {}   // play collapse anim
+    try { win.webContents.send("glassbox-hud-hide"); } catch {}
     if (collapseTimer) clearTimeout(collapseTimer);
     collapseTimer = setTimeout(() => {
       collapseTimer = null;
