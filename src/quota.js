@@ -36,15 +36,18 @@ function isExpired(expiresAt, now) {
   return expiresAt <= now;
 }
 
-// utilization is already a 0-100 percent (spec: don't compute it). resetsAt is
-// ISO8601. A window missing either field is skipped — never invented.
+// utilization is already a 0-100 percent (spec: don't compute it). The live API
+// field is snake_case `resets_at` (ISO8601) and can be null — a window with a
+// numeric utilization is kept even when resets_at is null (no countdown shown);
+// a null/missing window is skipped — never invented.
 function normalizeUsage(data) {
   const out = [];
   if (!data || typeof data !== "object") return out;
   for (const { key, label } of USAGE_WINDOWS) {
     const w = data[key];
-    if (!w || typeof w.utilization !== "number" || typeof w.resetsAt !== "string") continue;
-    out.push({ key, label, utilization: w.utilization, resetsAt: w.resetsAt });
+    if (!w || typeof w.utilization !== "number") continue;
+    const resetsAt = typeof w.resets_at === "string" ? w.resets_at : null;
+    out.push({ key, label, utilization: w.utilization, resetsAt });
   }
   return out;
 }

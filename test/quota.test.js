@@ -45,18 +45,20 @@ describe("quota isExpired", () => {
 });
 
 describe("quota normalizeUsage", () => {
-  it("maps the 4 windows, keeps utilization + resetsAt, skips missing", () => {
+  it("maps windows via snake_case resets_at; skips null windows; keeps null resets_at", () => {
     const data = {
-      five_hour: { utilization: 42.6, resetsAt: "2026-06-08T12:00:00Z" },
-      seven_day: { utilization: 10, resetsAt: "2026-06-15T00:00:00Z" },
-      seven_day_sonnet: { utilization: 5, resetsAt: "2026-06-15T00:00:00Z" },
+      five_hour: { utilization: 42.6, resets_at: "2026-06-08T12:00:00Z" },
+      seven_day: { utilization: 10, resets_at: "2026-06-15T00:00:00Z" },
+      seven_day_opus: null, // skipped entirely
+      seven_day_sonnet: { utilization: 0, resets_at: null }, // kept, no countdown
     };
     const out = normalizeUsage(data);
     assert.strictEqual(out.length, 3);
     assert.deepStrictEqual(out[0], { key: "five_hour", label: USAGE_WINDOWS[0].label, utilization: 42.6, resetsAt: "2026-06-08T12:00:00Z" });
-    assert.ok(out.every((w) => typeof w.utilization === "number" && typeof w.resetsAt === "string"));
+    assert.strictEqual(out[2].key, "seven_day_sonnet");
+    assert.strictEqual(out[2].resetsAt, null);
   });
-  it("returns [] for junk", () => {
+  it("returns [] for junk; skips non-numeric utilization", () => {
     assert.deepStrictEqual(normalizeUsage(null), []);
     assert.deepStrictEqual(normalizeUsage({ five_hour: { utilization: "x" } }), []);
   });
@@ -137,7 +139,7 @@ describe("quota fetchUsage", () => {
 });
 
 const goodCreds = JSON.stringify({ claudeAiOauth: { accessToken: "tok", expiresAt: 2e12 } });
-const usageBody = { five_hour: { utilization: 50, resetsAt: "2099-01-01T00:00:00Z" } };
+const usageBody = { five_hour: { utilization: 50, resets_at: "2099-01-01T00:00:00Z" } };
 function deps(over = {}) {
   return {
     platform: "win32", homedir: "/h", now: over.now || (() => 1000),
