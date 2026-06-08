@@ -256,3 +256,15 @@ document.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   window.hitAPI.showContextMenu();
 });
+
+// --- Hover HUD (item 4): open the action toolbar when the cursor is on the pet.
+// Doesn't touch drag/click/right-click. Suppress leave during a drag so dragging
+// the pet out doesn't collapse the HUD mid-gesture; main's delayed dismiss does
+// the rest of the combined pet+HUD zone bridging.
+area.addEventListener("pointerenter", () => {
+  if (window.hitAPI && window.hitAPI.petHoverEnter) window.hitAPI.petHoverEnter();
+});
+area.addEventListener("pointerleave", () => {
+  if (isDragging) return;
+  if (window.hitAPI && window.hitAPI.petHoverLeave) window.hitAPI.petHoverLeave();
+});

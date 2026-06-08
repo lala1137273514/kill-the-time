@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld("hitAPI", {
   exitMiniMode: () => ipcRenderer.send("exit-mini-mode"),
   showDashboard: () => ipcRenderer.send("show-dashboard"),
   revealSessionHud: () => ipcRenderer.send("pet-interaction:reveal-session-hud"),
+  // Hover HUD (item 4): pet hit-zone enter/leave drives the toolbar.
+  petHoverEnter: () => ipcRenderer.send("pet-hover-enter"),
+  petHoverLeave: () => ipcRenderer.send("pet-hover-leave"),
   // Reaction triggers → main → renderWin
   startDragReaction: (direction) => ipcRenderer.send("start-drag-reaction", direction),
   endDragReaction: () => ipcRenderer.send("end-drag-reaction"),

@@ -296,6 +296,8 @@ const _initGlassboxCard = require("./glassbox-card");
 const { parseStreamLine } = require("./glassbox-stream");
 let glassboxNarrator = null;
 let _glassboxCard = null;
+const _initGlassboxHud = require("./glassbox-hud");
+let _glassboxHud = null;
 const _createQuota = require("./quota").createQuota;
 const _initQuotaPopup = require("./quota-popup");
 let _quota = null;
@@ -1221,6 +1223,30 @@ _glassboxCard = _initGlassboxCard({
   getPetWindowBounds,
   getNearestWorkArea,
   get petHidden() { return petWindowRuntime.isPetHidden(); },
+});
+
+// Hover HUD — TermiPet-style action toolbar beside the pet (item 4). Pet hit
+// window + this HUD window both report hover; a single delayed dismiss bridges
+// the gap between them so it never flickers.
+_glassboxHud = _initGlassboxHud({
+  getPetWindowBounds,
+  getNearestWorkArea,
+  get petHidden() { return petWindowRuntime.isPetHidden(); },
+});
+ipcMain.on("pet-hover-enter", () => { try { if (_glassboxHud) _glassboxHud.show(); } catch {} });
+ipcMain.on("pet-hover-leave", () => { try { if (_glassboxHud) _glassboxHud.scheduleDismiss(); } catch {} });
+ipcMain.on("glassbox-hud-hover", (_e, over) => { try { if (_glassboxHud) { if (over) _glassboxHud.cancelDismiss(); else _glassboxHud.scheduleDismiss(); } } catch {} });
+ipcMain.on("glassbox-hud-action", (_e, id) => {
+  try {
+    switch (id) {
+      case "chat": toggleGlassboxInput(); break;
+      case "quota": showQuotaDashboard(); break;
+      case "pomodoro": pomodoroStart("focus"); break;
+      case "dashboard": showDashboard(); break;
+      case "settings": settingsWindowRuntime.open(); break;
+      case "close": if (_glassboxHud) _glassboxHud.hide(); break;
+    }
+  } catch {}
 });
 
 // Claude usage dashboard (功能1) — popup near the pet, opened from menu/tray.
@@ -3307,8 +3333,8 @@ function createWindow() {
   });
 
   // Event-level safety net for position sync
-  win.on("move", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} try { if (_glassboxCard) _glassboxCard.reposition(); } catch {} });
-  win.on("resize", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} try { if (_glassboxCard) _glassboxCard.reposition(); } catch {} });
+  win.on("move", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} try { if (_glassboxCard) _glassboxCard.reposition(); } catch {} try { if (_glassboxHud) _glassboxHud.reposition(); } catch {} });
+  win.on("resize", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} try { if (_glassboxCard) _glassboxCard.reposition(); } catch {} try { if (_glassboxHud) _glassboxHud.reposition(); } catch {} });
 
   syncSessionHudVisibility();
 
@@ -3805,6 +3831,7 @@ if (!gotTheLock) {
     try { if (glassboxWakeWin && !glassboxWakeWin.isDestroyed()) glassboxWakeWin.close(); } catch {}
     try { if (_glassboxFx) _glassboxFx.cleanup(); } catch {}
     try { if (_glassboxCard) _glassboxCard.cleanup(); } catch {}
+    try { if (_glassboxHud) _glassboxHud.cleanup(); } catch {}
     try { if (_quotaPopup) _quotaPopup.cleanup(); } catch {}
     try { _pomodoroStopTimer(); } catch {}
     void settingsSizePreviewSession.cleanup();
