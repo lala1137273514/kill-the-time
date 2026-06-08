@@ -53,6 +53,9 @@ class GlassboxRemote {
     this.onAnswer = typeof deps.onAnswer === "function" ? deps.onAnswer : () => {};
     this.getPending = typeof deps.getPending === "function" ? deps.getPending : () => ({});
     this.defaultCwd = deps.defaultCwd || null;
+    // A function lets main resolve a sensible default at dispatch time (e.g. the
+    // most-recent tracked session's cwd); falls back to the static defaultCwd.
+    this.getDefaultCwd = typeof deps.getDefaultCwd === "function" ? deps.getDefaultCwd : () => this.defaultCwd;
     this.log = typeof deps.log === "function" ? deps.log : () => {};
     // Semantic phase callback for middle-state feedback (direction 1). The pet /
     // input bar map these phases to visible state; default no-op keeps it
@@ -140,7 +143,7 @@ class GlassboxRemote {
       window: window || {},
       decision,
       screenshotPath,
-      defaultCwd: this.defaultCwd,
+      defaultCwd: this.getDefaultCwd(),
       sessionIdle: sessionId ? !!this.getSessionIdle(sessionId) : false,
     });
 

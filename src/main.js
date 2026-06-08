@@ -1653,7 +1653,24 @@ if (glassboxEnabled) {
         permissionPending: typeof _perm.getActionablePermissions === "function"
           && _perm.getActionablePermissions().length > 0,
       }),
-      defaultCwd: null, // don't guess (spec §6); ask when no window/session cwd
+      getDefaultCwd: () => {
+        // Prefer the most-recent tracked session's cwd (your current project),
+        // then an explicit override, then the home dir — so a dispatch never
+        // dead-ends on "which directory?" (the confirm dialog still gates it).
+        try {
+          const snap = (_state && typeof _state.buildSessionSnapshot === "function") ? _state.buildSessionSnapshot() : null;
+          const sessions = (snap && snap.sessions) || [];
+          const lastId = snap && snap.hudLastSessionId;
+          const byLast = lastId && sessions.find((s) => s && s.id === lastId && s.cwd);
+          if (byLast && byLast.cwd) return byLast.cwd;
+          const withCwd = sessions.filter((s) => s && s.cwd);
+          if (withCwd.length) return withCwd[withCwd.length - 1].cwd;
+        } catch {}
+        const envCwd = process.env.CLAWD_GLASSBOX_DEFAULT_CWD;
+        if (envCwd && envCwd.trim()) return envCwd.trim();
+        try { return require("os").homedir(); } catch {}
+        return null;
+      },
       onPhase: (phase) => relayGlassboxPhase(phase),
       shouldConfirm: (decision) => {
         // Direction 2b: confirm policy from settings (default "always").
