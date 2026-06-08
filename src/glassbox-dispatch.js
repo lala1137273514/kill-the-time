@@ -16,6 +16,8 @@
 // on an empty prompt; a spawn failure surfaces on the handle (fire-and-forget),
 // not as a synchronous throw.
 
+const { streamArgs } = require("./glassbox-stream");
+
 const AGENT_BY_ID = {
   "claude-code": "claude",
   claude: "claude",
@@ -94,6 +96,9 @@ function dispatch(plan = {}, opts = {}) {
   // result summary). Otherwise stay fully detached.
   const wantLines = typeof opts.onLine === "function";
   const wantOutput = typeof opts.onComplete === "function" || wantLines;
+  // When line narration is wired, ask claude to emit machine-readable events so
+  // the card can show real activity (claude only, not codex; after base flags).
+  if (plan.agent !== "codex" && wantLines) args.push(...streamArgs());
   const spawnOpts = {
     cwd: plan.cwd || undefined,
     // NO shell: claude ships as a real claude.exe, which libuv resolves on PATH

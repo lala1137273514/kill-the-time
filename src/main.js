@@ -291,6 +291,11 @@ const _initGlassboxBubble = require("./glassbox-bubble");
 let _glassboxBubble = null;
 const _initGlassboxFx = require("./glassbox-fx");
 let _glassboxFx = null;
+const { createNarrator } = require("./glassbox-narrator");
+const _initGlassboxCard = require("./glassbox-card");
+const { parseStreamLine } = require("./glassbox-stream");
+let glassboxNarrator = null;
+let _glassboxCard = null;
 const _createQuota = require("./quota").createQuota;
 const _initQuotaPopup = require("./quota-popup");
 let _quota = null;
@@ -302,14 +307,32 @@ const _pomodoro = createPomodoro({ focusMs: _pomFocusMs, breakMs: _pomBreakMs })
 let _pomodoroTimer = null;
 let glassboxDemoRunning = false;
 let glassboxDemoCancel = false;
+// Single funnel: every glass-box event source (phase / commentary / chat /
+// supervisor) goes through the narrator, which decides the card + (for spoken
+// sources) speech. petState stays on the sleep-protected resolver below.
+function applyNarratorEffect(event) {
+  if (!glassboxNarrator) return;
+  let eff = null;
+  try { eff = glassboxNarrator.observe(event); } catch {}
+  if (!eff) return;
+  if (eff.card) {
+    try {
+      if (eff.card.mode === "hide") { if (_glassboxCard) _glassboxCard.hide(); }
+      else if (_glassboxCard) _glassboxCard.render(eff.card);
+    } catch {}
+  }
+  // Only spoken-content sources actually speak; phase/commentary are card-only.
+  if (eff.speak && event.source === "chat") { try { if (glassboxVoice) glassboxVoice.speak(eff.speak); } catch {} }
+}
+
 function relayGlassboxPhase(phase) {
   const fb = _glassboxPhaseFeedback(phase);
   const payload = { phase, status: fb.status, emoji: fb.emoji, petState: fb.petState, terminal: fb.terminal };
   // Renderer observers (status / HUD).
   try { sendToRenderer("glassbox-phase", payload); } catch {}
-  // The canonical glass-box surface: a thought bubble floating above the PET, so
-  // the steps live on the character. Self-hides after a terminal phase.
-  try { if (_glassboxBubble) _glassboxBubble.showPhase({ emoji: fb.emoji, status: fb.status, terminal: fb.terminal }); } catch {}
+  // The canonical glass-box surface is now the live CARD, driven by the narrator
+  // (single coordinator) — replaces the old thought-bubble.
+  applyNarratorEffect({ source: "phase", kind: "phase", text: phase });
   // Confetti burst on a successful finish — a little reward the judges can see.
   if (phase === "done" || phase === "approved") { try { if (_glassboxFx) _glassboxFx.celebrate(phase); } catch {} }
   // Reflect the phase on the pet via the sanctioned setState(). The resolver
@@ -1192,6 +1215,14 @@ _glassboxFx = _initGlassboxFx({
   getNearestWorkArea,
   get petHidden() { return petWindowRuntime.isPetHidden(); },
 });
+// Unified voice-supervisor: narrator (single coordinator) + live card surface.
+glassboxNarrator = createNarrator({});
+_glassboxCard = _initGlassboxCard({
+  getPetWindowBounds,
+  getNearestWorkArea,
+  get petHidden() { return petWindowRuntime.isPetHidden(); },
+});
+
 // Claude usage dashboard (功能1) — popup near the pet, opened from menu/tray.
 _quota = _createQuota({});
 _quotaPopup = _initQuotaPopup({
@@ -1337,12 +1368,8 @@ const _stateCtx = {
       try {
         const ev = glassboxSupervisor.noteSnapshot(snapshot);
         if (ev) {
-          if (glassboxVoice) glassboxVoice.speak(ev.say);
-          if (_glassboxBubble) _glassboxBubble.showPhase({
-            emoji: ev.kind === "done" ? "✅" : ev.kind === "error" ? "⚠️" : "👀",
-            status: ev.say,
-            terminal: ev.kind !== "stuck",
-          });
+          // Supervisor / session-monitor announcements → narrator (card + spoken).
+          applyNarratorEffect({ source: "chat", kind: "supervisor", text: ev.say });
         }
       } catch {}
     }
@@ -1572,42 +1599,19 @@ if (glassboxEnabled) {
       dispatchFn: (plan, o) => {
         // Narrate the dispatched run line-by-line. Best-effort: a narration
         // error must never break the dispatch (glue isolates; core is pure).
-        try { glassboxCommentary && glassboxCommentary.reset(); } catch {}
+        try { glassboxNarrator && glassboxNarrator.reset(); } catch {}
         return glassboxDispatch.dispatch(
           { ...plan, permissionMode: _glassboxCfg().permissionMode },
           {
+            // Real agent activity → stream-json parse → narrator → card (the
+            // "visible terminal"). Card-only; the final summary is spoken by the
+            // remote's onComplete (forwarded below).
             onLine: (line) => {
-              if (!glassboxCommentary) return;
-              let ev = null;
-              try { ev = glassboxCommentary.observe(line); } catch {}
-              if (ev) {
-                try { glassboxVoice && glassboxVoice.speak(ev.say); } catch {}
-                try {
-                  _glassboxBubble && _glassboxBubble.showPhase({
-                    emoji: ev.kind === "done" ? "✅" : ev.kind === "error" ? "⚠️" : "🔧",
-                    status: ev.say,
-                    terminal: false,
-                  });
-                } catch {}
-              }
+              let parsed = null;
+              try { parsed = parseStreamLine(line); } catch {}
+              if (parsed) applyNarratorEffect({ source: "commentary", kind: parsed.kind, text: parsed.text });
             },
             onComplete: (result) => {
-              // Mid-run milestones are spoken by commentary; the FINAL spoken
-              // summary stays owned by glassbox-remote.onComplete (forwarded
-              // below) to avoid double speech — finish() only updates the bubble.
-              if (glassboxCommentary) {
-                let ev = null;
-                try { ev = glassboxCommentary.finish({ code: result && result.code }); } catch {}
-                if (ev) {
-                  try {
-                    _glassboxBubble && _glassboxBubble.showPhase({
-                      emoji: ev.kind === "done" ? "✅" : "⚠️",
-                      status: ev.say,
-                      terminal: true,
-                    });
-                  } catch {}
-                }
-              }
               if (o && typeof o.onComplete === "function") o.onComplete(result);
             },
           }
@@ -1628,7 +1632,7 @@ if (glassboxEnabled) {
         try { clipboard.writeText(route.text || ""); } catch {}
         sessionLog(`glassbox-remote: staged answer to clipboard: ${(route.text || "").slice(0, 40)}`);
       },
-      speak: (text) => { try { glassboxVoice && glassboxVoice.speak(text); } catch {} },
+      speak: (text) => { applyNarratorEffect({ source: "chat", kind: "reply", text }); },
       confirmDispatch: async (decision) => {
         // Recap + confirm before every dispatch (spec §6: don't burn an agent
         // run on a misheard command). Write/delete/network gets a louder prompt.
@@ -3286,8 +3290,8 @@ function createWindow() {
   });
 
   // Event-level safety net for position sync
-  win.on("move", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} });
-  win.on("resize", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} });
+  win.on("move", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} try { if (_glassboxCard) _glassboxCard.reposition(); } catch {} });
+  win.on("resize", () => { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {} try { if (_glassboxFx) _glassboxFx.reposition(); } catch {} try { if (_quotaPopup) _quotaPopup.reposition(); } catch {} try { if (_glassboxCard) _glassboxCard.reposition(); } catch {} });
 
   syncSessionHudVisibility();
 
@@ -3617,7 +3621,7 @@ if (!gotTheLock) {
         const { runDemo } = require("./glassbox-demo");
         Promise.resolve(runDemo({
           emitPhase: (p) => relayGlassboxPhase(p),   // drives the on-pet bubble + pet
-          speak: (t) => { try { glassboxVoice && glassboxVoice.speak(t); } catch {} },
+          speak: (t) => { applyNarratorEffect({ source: "chat", kind: "reply", text: t }); },
           isCancelled: () => glassboxDemoCancel,
         })).then((res) => {
           // On cancel no terminal phase fires, so hide the bubble explicitly.
@@ -3783,6 +3787,7 @@ if (!gotTheLock) {
     globalShortcut.unregisterAll();
     try { if (glassboxWakeWin && !glassboxWakeWin.isDestroyed()) glassboxWakeWin.close(); } catch {}
     try { if (_glassboxFx) _glassboxFx.cleanup(); } catch {}
+    try { if (_glassboxCard) _glassboxCard.cleanup(); } catch {}
     try { if (_quotaPopup) _quotaPopup.cleanup(); } catch {}
     try { _pomodoroStopTimer(); } catch {}
     void settingsSizePreviewSession.cleanup();
