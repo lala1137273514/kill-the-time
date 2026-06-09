@@ -11,8 +11,8 @@
 // Single source of truth for the field set / allowed values stays in
 // glassbox-settings.js (DEFAULT_GLASSBOX_SETTINGS / PERMISSION_MODES /
 // CONFIRM_MODES). We import those instead of re-declaring them so the UI can
-// never drift from what prefs actually stores. Secrets (API keys) are absent by
-// construction — they live in env, never in plaintext prefs.
+// never drift from what prefs actually stores. API key/url are exposed as
+// optional local overrides; env vars remain safer because prefs is plaintext.
 
 const {
   DEFAULT_GLASSBOX_SETTINGS,
@@ -36,7 +36,8 @@ const PERMISSION_MODE_LABELS = Object.freeze({
 });
 
 const CONFIRM_MODE_LABELS = Object.freeze({
-  always: "每次都确认",
+  "agent-native": "交给 agent 原生确认",
+  always: "每次派活前确认",
   "writes-only": "仅写操作时确认",
 });
 
@@ -55,7 +56,7 @@ function _options(values, labels) {
 
 // Ordered so the section reads top-down: master switches → policy → models →
 // input → prompt. Each entry is the minimal declarative contract the renderer
-// consumes: { key, label(zh), type: 'toggle'|'select'|'text', options? }.
+// consumes: { key, label(zh), type: 'toggle'|'select'|'text'|'password', options? }.
 function buildGlassboxSettingsSpec() {
   return [
     { key: "voiceEnabled", label: "语音总开关", type: "toggle" },
@@ -72,8 +73,31 @@ function buildGlassboxSettingsSpec() {
       type: "select",
       options: _options(PERMISSION_MODES, PERMISSION_MODE_LABELS),
     },
-    { key: "orchestratorModel", label: "编排模型", type: "text" },
+    { key: "orchestratorModel", label: "LLM 模型", type: "text" },
+    { key: "orchestratorApiUrl", label: "LLM 基础地址", type: "text" },
+    { key: "orchestratorApiKey", label: "LLM API 密钥", type: "password" },
+    { key: "ttsModel", label: "TTS 模型", type: "text" },
+    { key: "ttsApiUrl", label: "TTS 基础地址", type: "text" },
     { key: "ttsVoice", label: "语音音色（TTS）", type: "text" },
+    { key: "ttsApiKey", label: "TTS API 密钥", type: "password" },
+    { key: "ttsEventStart", label: "TTS 固定事件：开始", type: "toggle" },
+    { key: "ttsEventFanout", label: "TTS 固定事件：并行", type: "toggle" },
+    { key: "ttsEventWaiting", label: "TTS 固定事件：等待确认", type: "toggle" },
+    { key: "ttsEventCompacting", label: "TTS 固定事件：压缩上下文", type: "toggle" },
+    { key: "ttsEventStuck", label: "TTS 固定事件：卡住", type: "toggle" },
+    { key: "ttsEventError", label: "TTS 固定事件：报错", type: "toggle" },
+    { key: "ttsEventDone", label: "TTS 固定事件：完成", type: "toggle" },
+    { key: "ttsTextStart", label: "播报文案：开始", type: "text" },
+    { key: "ttsTextFanout", label: "播报文案：并行", type: "text" },
+    { key: "ttsTextWaiting", label: "播报文案：等待确认", type: "text" },
+    { key: "ttsTextCompacting", label: "播报文案：压缩上下文", type: "text" },
+    { key: "ttsTextLongRun", label: "播报文案：执行较久", type: "text" },
+    { key: "ttsTextError", label: "播报文案：报错", type: "text" },
+    { key: "ttsTextDone", label: "播报文案：完成", type: "text" },
+    { key: "ttsTextDrag", label: "播报文案：拖拽", type: "text" },
+    { key: "asrModel", label: "ASR 模型", type: "text" },
+    { key: "asrApiUrl", label: "ASR 基础地址", type: "text" },
+    { key: "asrApiKey", label: "ASR API 密钥", type: "password" },
     {
       key: "whisperModel",
       label: "Whisper 识别模型",
@@ -124,7 +148,30 @@ const GLASSBOX_FIELD_VALIDATORS = Object.freeze({
   wakeWordEnabled: okBoolean("wakeWordEnabled"),
   hotkey: okString("hotkey"),
   orchestratorModel: okString("orchestratorModel"),
+  orchestratorApiUrl: okString("orchestratorApiUrl"),
+  orchestratorApiKey: okString("orchestratorApiKey"),
+  ttsModel: okString("ttsModel"),
+  ttsApiUrl: okString("ttsApiUrl"),
   ttsVoice: okString("ttsVoice"),
+  ttsApiKey: okString("ttsApiKey"),
+  ttsEventStart: okBoolean("ttsEventStart"),
+  ttsEventFanout: okBoolean("ttsEventFanout"),
+  ttsEventWaiting: okBoolean("ttsEventWaiting"),
+  ttsEventCompacting: okBoolean("ttsEventCompacting"),
+  ttsEventStuck: okBoolean("ttsEventStuck"),
+  ttsEventError: okBoolean("ttsEventError"),
+  ttsEventDone: okBoolean("ttsEventDone"),
+  ttsTextStart: okString("ttsTextStart"),
+  ttsTextFanout: okString("ttsTextFanout"),
+  ttsTextWaiting: okString("ttsTextWaiting"),
+  ttsTextCompacting: okString("ttsTextCompacting"),
+  ttsTextLongRun: okString("ttsTextLongRun"),
+  ttsTextError: okString("ttsTextError"),
+  ttsTextDone: okString("ttsTextDone"),
+  ttsTextDrag: okString("ttsTextDrag"),
+  asrModel: okString("asrModel"),
+  asrApiUrl: okString("asrApiUrl"),
+  asrApiKey: okString("asrApiKey"),
   whisperModel: okEnum("whisperModel", WHISPER_MODELS),
   permissionMode: okEnum("permissionMode", PERMISSION_MODES),
   confirmMode: okEnum("confirmMode", CONFIRM_MODES),

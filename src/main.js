@@ -287,6 +287,20 @@ function _glassboxCfg() {
   const snap = (_settingsController && typeof _settingsController.getSnapshot === "function") ? _settingsController.getSnapshot() : null;
   return _resolveGlassboxConfig((snap && snap.glassbox) || {}, process.env);
 }
+function _glassboxSettings() {
+  const snap = (_settingsController && typeof _settingsController.getSnapshot === "function") ? _settingsController.getSnapshot() : null;
+  return (snap && snap.glassbox && typeof snap.glassbox === "object") ? snap.glassbox : {};
+}
+function _glassboxCustomLine(field, fallback, data = {}) {
+  const gb = _glassboxSettings();
+  const raw = typeof gb[field] === "string" ? gb[field].trim() : "";
+  const line = raw || fallback || "";
+  return String(line).replace(/\{n\}/g, String(data.count || data.subagentCount || ""));
+}
+function _glassboxEventEnabled(field) {
+  const gb = _glassboxSettings();
+  return !field || gb[field] !== false;
+}
 const _initGlassboxBubble = require("./glassbox-bubble");
 let _glassboxBubble = null;
 const _initGlassboxFx = require("./glassbox-fx");
@@ -304,12 +318,21 @@ const _initQuotaPopup = require("./quota-popup");
 let _quota = null;
 let _quotaPopup = null;
 const { createPomodoro, formatRemaining } = require("./pomodoro");
+const { createDragNarration: _createDragNarration } = require("./glassbox-drag-narration");
 const _pomFocusMs = (Number.parseInt(process.env.CLAWD_POMODORO_FOCUS_MIN, 10) || 25) * 60000;
 const _pomBreakMs = (Number.parseInt(process.env.CLAWD_POMODORO_BREAK_MIN, 10) || 5) * 60000;
 const _pomodoro = createPomodoro({ focusMs: _pomFocusMs, breakMs: _pomBreakMs });
 let _pomodoroTimer = null;
 let glassboxDemoRunning = false;
 let glassboxDemoCancel = false;
+const _glassboxDragNarration = _createDragNarration({
+  speak: (line) => {
+    try {
+      if (soundMuted || doNotDisturb) return;
+      applyNarratorEffect({ source: "chat", kind: "speech", text: _glassboxCustomLine("ttsTextDrag", line) });
+    } catch {}
+  },
+});
 // Single funnel: every glass-box event source (phase / commentary / chat /
 // supervisor) goes through the narrator, which decides the card + (for spoken
 // sources) speech. petState stays on the sleep-protected resolver below.
@@ -320,8 +343,14 @@ function applyNarratorEffect(event) {
   if (!eff) return;
   if (eff.card) {
     try {
-      if (eff.card.mode === "hide") { if (_glassboxCard) _glassboxCard.hide(); }
-      else if (_glassboxCard) _glassboxCard.render(eff.card);
+      if (eff.card.mode === "hide") {
+        if (_glassboxHud) _glassboxHud.hideCard();
+        if (_glassboxCard) _glassboxCard.hide();
+      } else if (eff.card.mode === "permission" || eff.card.mode === "chat") {
+        if (_glassboxCard) _glassboxCard.render(eff.card);
+      } else if (_glassboxCard) {
+        _glassboxCard.render(eff.card);
+      }
     } catch {}
   }
   // Only spoken-content sources actually speak; phase/commentary are card-only.
@@ -1249,8 +1278,44 @@ _glassboxHud = _initGlassboxHud({
   getPetWindowBounds: getPetVisibleBounds,
   getNearestWorkArea,
   get petHidden() { return petWindowRuntime.isPetHidden(); },
+  getSessionSnapshot: () => _state.buildSessionSnapshot(),
   getUsage: (o) => (_quota ? _quota.getUsage(o) : Promise.resolve({ status: "loading" })),
+  getExtraHoverBounds: () => {
+    const rects = [];
+    for (const surface of [_glassboxCard, _glassboxBubble]) {
+      try {
+        const w = surface && typeof surface.getWindow === "function" ? surface.getWindow() : null;
+        if (w && !w.isDestroyed() && w.isVisible()) rects.push(w.getBounds());
+      } catch {}
+    }
+    return rects;
+  },
+  restorePetInputLayer: () => {
+    try { syncHitWin(); } catch {}
+    try { reapplyMacVisibility(); } catch {}
+    try {
+      if (hitWin && !hitWin.isDestroyed()) {
+        hitWin.showInactive();
+        if (typeof hitWin.moveTop === "function") hitWin.moveTop();
+      }
+    } catch {}
+  },
 });
+function openSettingsTab(tabId) {
+  settingsWindowRuntime.open();
+  const send = () => {
+    try {
+      const w = settingsWindowRuntime.getWindow();
+      if (w && !w.isDestroyed()) w.webContents.send("settings:select-tab", { tabId });
+    } catch {}
+  };
+  const w = settingsWindowRuntime.getWindow();
+  if (w && !w.isDestroyed() && w.webContents && w.webContents.isLoading()) {
+    try { w.webContents.once("did-finish-load", send); } catch { setTimeout(send, 80); }
+  } else {
+    setTimeout(send, 80);
+  }
+}
 ipcMain.on("pet-hover-enter", () => { try { if (_glassboxHud) _glassboxHud.show(); } catch {} });
 ipcMain.on("pet-hover-leave", () => { try { if (_glassboxHud) _glassboxHud.scheduleDismiss(); } catch {} });
 ipcMain.on("glassbox-hud-hover", (_e, over) => { try { if (_glassboxHud) { if (over) _glassboxHud.cancelDismiss(); else _glassboxHud.scheduleDismiss(); } } catch {} });
@@ -1258,12 +1323,19 @@ ipcMain.on("glassbox-hud-action", (_e, id) => {
   try {
     switch (id) {
       case "chat": toggleGlassboxInput(); break;
-      case "quota": showQuotaDashboard(); break;
-      case "pomodoro": pomodoroStart("focus"); break;
+      case "quota": if (_glassboxHud) { _glassboxHud.show(); _glassboxHud.refreshUsage(true); } break;
       case "dashboard": showDashboard(); break;
+      case "llm":
+      case "tts":
+      case "asr":
+        openSettingsTab("glassbox");
+        break;
       case "settings": settingsWindowRuntime.open(); break;
     }
   } catch {}
+});
+ipcMain.on("glassbox-hud-interactive", (_e, on) => {
+  try { if (_glassboxHud) _glassboxHud.setInteractive(!!on); } catch {}
 });
 
 // Claude usage dashboard (功能1) — popup near the pet, opened from menu/tray.
@@ -1274,7 +1346,12 @@ _quotaPopup = _initQuotaPopup({
   get petHidden() { return petWindowRuntime.isPetHidden(); },
   getUsage: (o) => _quota.getUsage(o),
 });
-function showQuotaDashboard() { try { if (_quotaPopup) _quotaPopup.toggle(); } catch {} }
+function showQuotaDashboard() {
+  try {
+    if (_glassboxHud) { _glassboxHud.show(); _glassboxHud.refreshUsage(true); return; }
+    if (_quotaPopup) _quotaPopup.toggle();
+  } catch {}
+}
 ipcMain.on("quota:refresh", () => { try { if (_quotaPopup) _quotaPopup.refresh(true); } catch {} });
 
 // Pomodoro (功能2): pure machine + a 1s ticker that runs only while active.
@@ -1393,6 +1470,7 @@ const _stateCtx = {
     reconcilePowerSaveBlocker();
     broadcastDashboardSessionSnapshot(snapshot);
     broadcastSessionHudSnapshot(snapshot);
+    if (_glassboxHud && typeof _glassboxHud.refresh === "function") _glassboxHud.refresh();
     repositionFloatingBubbles();
     if (hardwareBuddyAdapter) hardwareBuddyAdapter.notifyStateChanged();
     // R1a: best-effort completion notifications. Must never throw or block the
@@ -1412,7 +1490,15 @@ const _stateCtx = {
         const ev = glassboxSupervisor.noteSnapshot(snapshot);
         if (ev) {
           // Supervisor / session-monitor announcements → narrator (card + spoken).
-          applyNarratorEffect({ source: "chat", kind: "supervisor", text: ev.say });
+          const eventField = ev.kind === "done" ? "ttsEventDone"
+            : ev.kind === "error" ? "ttsEventError"
+            : "ttsEventStuck";
+          if (_glassboxEventEnabled(eventField)) {
+            const textField = ev.kind === "done" ? "ttsTextDone"
+              : ev.kind === "error" ? "ttsTextError"
+              : "ttsTextLongRun";
+            applyNarratorEffect({ source: "chat", kind: "supervisor", text: _glassboxCustomLine(textField, ev.say) });
+          }
         }
       } catch {}
     }
@@ -1465,13 +1551,49 @@ if (glassboxEnabled) {
     const { GlassboxVoice } = require("./glassbox-voice");
     const { glassboxVoiceShouldSpeak } = require("./glassbox-settings");
     const glassboxTts = require("./glassbox-tts");
+    const glassboxSpeech = require("./glassbox-speech");
     const osMod = require("os");
     const fsMod = require("fs");
     const pathMod = require("path");
     const { pathToFileURL } = require("url");
     let voiceSeq = 0;
+    const ttsMilestoneField = {
+      start: "ttsEventStart",
+      fanout: "ttsEventFanout",
+      waiting: "ttsEventWaiting",
+      compacting: "ttsEventCompacting",
+      stuck: "ttsEventStuck",
+      done: "ttsEventDone",
+    };
+    const ttsMilestoneTextField = {
+      start: "ttsTextStart",
+      fanout: "ttsTextFanout",
+      waiting: "ttsTextWaiting",
+      compacting: "ttsTextCompacting",
+      stuck: "ttsTextLongRun",
+      done: "ttsTextDone",
+    };
     glassboxVoice = new GlassboxVoice({
-      synth: (text) => glassboxTts.synthesize(text, { voice: _glassboxCfg().ttsVoice }),
+      synth: (text) => {
+        const cfg = _glassboxCfg();
+        return glassboxTts.synthesize(text, {
+          model: cfg.ttsModel,
+          endpoint: cfg.ttsApiUrl,
+          voice: cfg.ttsVoice,
+          apiKey: cfg.ttsApiKey || cfg.orchestratorApiKey,
+        });
+      },
+      resolveText: (text, meta = {}) => {
+        const field = ttsMilestoneTextField[meta.milestone];
+        const session = meta.session || {};
+        return field ? _glassboxCustomLine(field, text, { count: session.subagentCount }) : text;
+      },
+      onSpeak: (text, meta = {}) => {
+        try {
+          if (meta && meta.milestone === "manual") return;
+          if (_glassboxCard) _glassboxCard.render({ mode: "speech", status: "Clawd 旁白", text });
+        } catch {}
+      },
       play: (buf) => {
         // Honor mute / Do-Not-Disturb — playSound() gates these for chimes, and
         // narration (a louder, more frequent voice) must respect them too.
@@ -1487,14 +1609,25 @@ if (glassboxEnabled) {
         // Dedicated channel: the renderer plays this once WITHOUT caching it —
         // per-line unique URLs would bloat the chime cache forever. Delete the
         // temp file after a window comfortably longer than a short line.
-        sendToRenderer("glassbox-play", { url: pathToFileURL(file).href, volume: soundVolume });
-        setTimeout(() => { try { fsMod.unlinkSync(file); } catch {} }, 20000);
+        const durationMs = Math.max(900, Math.min(12000, glassboxSpeech.wavDurationMs(buf) || 1800));
+        sendToRenderer("glassbox-play", { url: pathToFileURL(file).href, volume: soundVolume, durationMs });
+        setTimeout(() => { try { fsMod.unlinkSync(file); } catch {} }, Math.max(20000, durationMs + 5000));
         // Make the pet look engaged while it speaks (gated; one-shot auto-returns).
         try {
           const cur = (typeof resolveDisplayState === "function") ? resolveDisplayState() : null;
           const st = _speechReflection(undefined, cur);
           if (st && typeof setState === "function") setState(st);
         } catch {}
+      },
+      shouldSpeakMilestone: (milestone) => {
+        try {
+          const snap = (_settingsController && _settingsController.getSnapshot) ? _settingsController.getSnapshot() : null;
+          const gb = (snap && snap.glassbox) || {};
+          const field = ttsMilestoneField[milestone];
+          return !field || gb[field] !== false;
+        } catch {
+          return true;
+        }
       },
       now: () => Date.now(),
       log: (msg) => sessionLog(msg),
@@ -1526,7 +1659,10 @@ if (glassboxEnabled) {
     // a hit just opens the Spotlight input bar (never auto-dispatches).
     const { WakeWordDetector } = require("./glassbox-wakeword");
     glassboxWakeword = new WakeWordDetector({
-      transcribe: (wavPath) => glassboxAsr.transcribe(wavPath, { model: _glassboxCfg().whisperModel }),
+      transcribe: (wavPath, opts = {}) => {
+        const cfg = _glassboxCfg();
+        return glassboxAsr.transcribe(wavPath, { model: cfg.asrModel || cfg.whisperModel, endpoint: cfg.asrApiUrl, apiKey: cfg.asrApiKey || cfg.orchestratorApiKey, ...opts });
+      },
       onWake: () => {
         try {
           sessionLog("glassbox-wake: heard 'hey, cc' -> opening input bar");
@@ -1538,7 +1674,10 @@ if (glassboxEnabled) {
       log: (m) => sessionLog(m),
     });
     glassboxListen = new GlassboxListener({
-      transcribe: (wavPath) => glassboxAsr.transcribe(wavPath, { model: _glassboxCfg().whisperModel }),
+      transcribe: (wavPath, opts = {}) => {
+        const cfg = _glassboxCfg();
+        return glassboxAsr.transcribe(wavPath, { model: cfg.asrModel || cfg.whisperModel, endpoint: cfg.asrApiUrl, apiKey: cfg.asrApiKey || cfg.orchestratorApiKey, ...opts });
+      },
       getPending: () => ({
         permissionPending: typeof _perm.getActionablePermissions === "function"
           && _perm.getActionablePermissions().length > 0,
@@ -1565,10 +1704,11 @@ if (glassboxEnabled) {
         // Echo what we heard so the user can catch mis-hears (e.g. Claude->CLO).
         sendToRenderer("glassbox-heard", { text: String(text || "") });
       },
-      onError: () => {
+      onError: (err) => {
         // Don't fail silently — say it and show it.
-        sendToRenderer("glassbox-heard", { error: "没听清" });
-        try { glassboxVoice && glassboxVoice.speak("没听清，再说一次"); } catch {}
+        const msg = err && err.message ? String(err.message).replace(/^glassbox-asr:\s*/, "") : "没听清";
+        sendToRenderer("glassbox-heard", { error: msg });
+        try { glassboxVoice && glassboxVoice.speak("没听清，再试一次"); } catch {}
       },
       log: (msg) => sessionLog(msg),
     });
@@ -1581,6 +1721,29 @@ if (glassboxEnabled) {
     const glassboxOrchestrator = require("./glassbox-orchestrator");
     const glassboxCapture = require("./glassbox-capture");
     const glassboxDispatch = require("./glassbox-dispatch");
+    const hasCommand = (name) => {
+      try {
+        const r = require("node:child_process").spawnSync(process.platform === "win32" ? "where" : "command", process.platform === "win32" ? [name] : ["-v", name], {
+          shell: process.platform !== "win32",
+          windowsHide: true,
+          stdio: "ignore",
+        });
+        return r && r.status === 0;
+      } catch {
+        return false;
+      }
+    };
+    const resolveCodexBin = () => {
+      const envBin = process.env.CODEX_BIN;
+      if (envBin && envBin.trim()) return envBin.trim();
+      const appBin = "/Applications/Codex.app/Contents/Resources/codex";
+      try { if (require("node:fs").existsSync(appBin)) return appBin; } catch {}
+      return "codex";
+    };
+    const getDefaultDispatchAgent = () => {
+      if (hasCommand("codex") || resolveCodexBin() !== "codex") return "codex";
+      return "claude";
+    };
 
     const resolveForegroundWindow = async () => {
       const win = await glassboxCapture.captureForegroundWindow({});
@@ -1631,7 +1794,12 @@ if (glassboxEnabled) {
         const snap = (_settingsController && typeof _settingsController.getSnapshot === "function")
           ? _settingsController.getSnapshot() : null;
         const gb = (snap && snap.glassbox) || {};
-        const oopts = { model: _glassboxCfg().orchestratorModel };
+        const cfg = _glassboxCfg();
+        const oopts = {
+          model: cfg.orchestratorModel,
+          endpoint: cfg.orchestratorApiUrl,
+        };
+        if (cfg.orchestratorApiKey) oopts.apiKey = cfg.orchestratorApiKey;
         if (gb.systemPrompt) oopts.systemPrompt = gb.systemPrompt;
         // Multi-turn: forward the conversation history the remote passes in.
         if (ropts && Array.isArray(ropts.history)) oopts.history = ropts.history;
@@ -1646,6 +1814,7 @@ if (glassboxEnabled) {
         return glassboxDispatch.dispatch(
           { ...plan, permissionMode: _glassboxCfg().permissionMode },
           {
+            codexBin: resolveCodexBin(),
             // Real agent activity → stream-json parse → narrator → card (the
             // "visible terminal"). Card-only; the final summary is spoken by the
             // remote's onComplete (forwarded below).
@@ -1714,6 +1883,7 @@ if (glassboxEnabled) {
         try { return require("os").homedir(); } catch {}
         return null;
       },
+      getDefaultAgent: getDefaultDispatchAgent,
       onPhase: (phase) => relayGlassboxPhase(phase),
       shouldConfirm: (decision) => {
         // Direction 2b: confirm policy from settings (default "always").
@@ -1806,6 +1976,16 @@ const _tickCtx = {
   getObjRect,
   getHitRectScreen,
   getAssetPointerPayload,
+  applyPetWindowBounds,
+  clampToScreenVisual,
+  syncAfterPetWindowMove: () => {
+    try { petWindowRuntime.syncFloatingWindowsAfterPetBoundsChange(); } catch {}
+    try { if (_glassboxBubble) _glassboxBubble.reposition(); } catch {}
+    try { if (_glassboxFx) _glassboxFx.reposition(); } catch {}
+    try { if (_quotaPopup) _quotaPopup.reposition(); } catch {}
+    try { if (_glassboxCard) _glassboxCard.reposition(); } catch {}
+    try { if (_glassboxHud) _glassboxHud.reposition(); } catch {}
+  },
 };
 const _tick = require("./tick")(_tickCtx);
 requestFastTick = (maxDelay) => _tick.scheduleSoon(maxDelay);
@@ -1999,7 +2179,7 @@ ipcMain.on("sound-playback-error", (_event, payload) => {
 });
 
 // Glass-box voice: receive a recorded push-to-talk clip, write it to a temp
-// file, and hand it to the listener (local whisper -> intent -> act). Inert
+// file, and hand it to the listener (ASR -> intent -> act). Inert
 // unless CLAWD_GLASSBOX_VOICE=1 built the listener.
 ipcMain.on("glassbox-voice-clip", (_event, payload) => {
   if (!glassboxListen) return;
@@ -2007,12 +2187,14 @@ ipcMain.on("glassbox-voice-clip", (_event, payload) => {
     const buffer = payload && payload.buffer;
     if (!buffer) return;
     const mime = payload && typeof payload.mime === "string" ? payload.mime : "audio/webm";
+    const sampleRate = Number(payload && payload.sampleRate);
     const ext = /wav/i.test(mime) ? "wav" : (/ogg/i.test(mime) ? "ogg" : "webm");
     const os = require("os");
     const fsp = require("fs");
     const file = require("path").join(os.tmpdir(), `clawd-voice-${process.pid}-${Date.now()}.${ext}`);
     fsp.writeFileSync(file, Buffer.from(buffer));
-    Promise.resolve(glassboxListen.onUtterance(file))
+    sessionLog(`glassbox-voice: clip mime=${mime} sampleRate=${Number.isFinite(sampleRate) ? sampleRate : "?"} bytes=${Buffer.from(buffer).length}`);
+    Promise.resolve(glassboxListen.onUtterance(file, { mime, sampleRate: Number.isFinite(sampleRate) ? sampleRate : undefined }))
       .catch((err) => sessionLog(`glassbox-voice: onUtterance failed: ${err && err.message}`))
       .finally(() => { try { fsp.unlinkSync(file); } catch {} });
   } catch (err) {
@@ -3361,6 +3543,12 @@ function createWindow() {
     moveWindowForDrag: () => moveWindowForDrag(),
     setIdlePaused: (value) => { idlePaused = !!value; },
     setLowPowerIdlePaused,
+    onDragReactionStart: () => {
+      try { _glassboxDragNarration.start(); } catch {}
+    },
+    onDragEnd: () => {
+      try { _glassboxDragNarration.end(); } catch {}
+    },
     isMiniTransitioning: () => _mini.getMiniTransitioning(),
     getCurrentState: () => _state.getCurrentState(),
     getCurrentSvg: () => _state.getCurrentSvg(),
@@ -3388,6 +3576,10 @@ function createWindow() {
     showDashboard: () => showDashboard(),
     focusSession: (sessionId, options) => focusDashboardSession(sessionId, options),
     revealSessionHud: () => {
+      if (_glassboxHud && typeof _glassboxHud.show === "function") {
+        _glassboxHud.show();
+        return;
+      }
       if (_sessionHud && typeof _sessionHud.revealFromPet === "function") {
         _sessionHud.revealFromPet();
       }
@@ -3651,8 +3843,10 @@ if (!gotTheLock) {
           // deny everything else so enabling voice doesn't loosen perms app-wide.
           const fromPet = !!win && wc === win.webContents;
           const fromInput = !!glassboxInputWin && !glassboxInputWin.isDestroyed() && wc === glassboxInputWin.webContents;
+          const hudWin = _glassboxHud && typeof _glassboxHud.getWindow === "function" ? _glassboxHud.getWindow() : null;
+          const fromHud = !!hudWin && !hudWin.isDestroyed() && wc === hudWin.webContents;
           const fromWake = !!glassboxWakeWin && !glassboxWakeWin.isDestroyed() && wc === glassboxWakeWin.webContents;
-          callback(permission === "media" && (fromPet || fromInput || fromWake));
+          callback(permission === "media" && (fromPet || fromInput || fromHud || fromWake));
         });
       } catch (err) {
         sessionLog(`glassbox-voice: permission handler failed: ${err && err.message}`);
@@ -3727,18 +3921,20 @@ if (!gotTheLock) {
       }
 
       // Wake word "hey, cc": the hidden listener window ships gated clips here;
-      // transcribe (local whisper) + match -> open the bar. Default OFF.
+      // transcribe + match -> open the bar. Default OFF.
       ipcMain.on("glassbox-wake-clip", (_evt, payload) => {
         if (!glassboxWakeword || !glassboxWakeword.isListening()) return;
         try {
           const buffer = payload && payload.buffer;
           if (!buffer) return;
           const mime = payload && typeof payload.mime === "string" ? payload.mime : "audio/webm";
+          const sampleRate = Number(payload && payload.sampleRate);
           const ext = /wav/i.test(mime) ? "wav" : (/ogg/i.test(mime) ? "ogg" : "webm");
           const os = require("os"), fsp = require("fs");
           const file = require("path").join(os.tmpdir(), `clawd-wake-${process.pid}-${Date.now()}.${ext}`);
           fsp.writeFileSync(file, Buffer.from(buffer));
-          Promise.resolve(glassboxWakeword.feedClip(file))
+          sessionLog(`glassbox-wake: clip mime=${mime} sampleRate=${Number.isFinite(sampleRate) ? sampleRate : "?"} bytes=${Buffer.from(buffer).length}`);
+          Promise.resolve(glassboxWakeword.feedClip(file, { mime, sampleRate: Number.isFinite(sampleRate) ? sampleRate : undefined }))
             .catch((err) => sessionLog(`glassbox-wake: feedClip failed: ${err && err.message}`))
             .finally(() => { try { fsp.unlinkSync(file); } catch {} });
         } catch (err) { sessionLog(`glassbox-wake: clip handling failed: ${err && err.message}`); }
@@ -3770,20 +3966,23 @@ if (!gotTheLock) {
           const buffer = payload && payload.buffer;
           if (!buffer) return;
           const mime = payload && typeof payload.mime === "string" ? payload.mime : "audio/webm";
+          const sampleRate = Number(payload && payload.sampleRate);
           const ext = /wav/i.test(mime) ? "wav" : (/ogg/i.test(mime) ? "ogg" : "webm");
           const os = require("os"), fsp = require("fs");
           const file = require("path").join(os.tmpdir(), `clawd-input-${process.pid}-${Date.now()}.${ext}`);
           fsp.writeFileSync(file, Buffer.from(buffer));
-          Promise.resolve(glassboxAsr.transcribe(file, { model: _glassboxCfg().whisperModel }))
+          sessionLog(`glassbox-input: clip mime=${mime} sampleRate=${Number.isFinite(sampleRate) ? sampleRate : "?"} bytes=${Buffer.from(buffer).length}`);
+          const cfg = _glassboxCfg();
+          Promise.resolve(glassboxAsr.transcribe(file, { model: cfg.asrModel || cfg.whisperModel, endpoint: cfg.asrApiUrl, apiKey: cfg.orchestratorApiKey, mime, sampleRate: Number.isFinite(sampleRate) ? sampleRate : undefined }))
             .then((text) => { if (!wc.isDestroyed()) wc.send("glassbox-input-transcript", { text: text || "" }); })
             .catch((err) => {
               sessionLog(`glassbox-input: transcribe failed: ${err && err.message}`);
-              if (!wc.isDestroyed()) wc.send("glassbox-input-transcript", { error: true });
+              if (!wc.isDestroyed()) wc.send("glassbox-input-transcript", { error: true, message: err && err.message });
             })
             .finally(() => { try { fsp.unlinkSync(file); } catch {} });
         } catch (err) {
           sessionLog(`glassbox-input: clip handling failed: ${err && err.message}`);
-          if (!wc.isDestroyed()) wc.send("glassbox-input-transcript", { error: true });
+          if (!wc.isDestroyed()) wc.send("glassbox-input-transcript", { error: true, message: err && err.message });
         }
       });
       ipcMain.on("glassbox-input-submit", (_evt, payload) => {
@@ -3866,6 +4065,7 @@ if (!gotTheLock) {
     _tick.cleanup();
     _mini.cleanup();
     _sessionHud.cleanup();
+    if (_glassboxHud && typeof _glassboxHud.cleanup === "function") _glassboxHud.cleanup();
     agentRuntime.cleanup();
     topmostRuntime.cleanup();
     themeRuntime.cleanup();

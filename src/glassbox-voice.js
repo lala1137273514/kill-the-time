@@ -32,6 +32,13 @@ class GlassboxVoice {
     this.now = typeof deps.now === "function" ? deps.now : () => 0;
     this.log = typeof deps.log === "function" ? deps.log : () => {};
     this.controller = deps.controller || new NarrationController(deps.controllerOpts || {});
+    this.shouldSpeakMilestone = typeof deps.shouldSpeakMilestone === "function"
+      ? deps.shouldSpeakMilestone
+      : () => true;
+    this.resolveText = typeof deps.resolveText === "function"
+      ? deps.resolveText
+      : (text) => text;
+    this.onSpeak = typeof deps.onSpeak === "function" ? deps.onSpeak : () => {};
     this.speaking = false;
     this._inflight = null; // exposed for tests to await
   }
@@ -49,7 +56,8 @@ class GlassboxVoice {
       if (!primary) return;
       const line = this.controller.next(primary, this.now());
       if (!line) return;
-      this._speak(line.text);
+      if (!this.shouldSpeakMilestone(line.milestone)) return;
+      this._speak(line.text, { milestone: line.milestone, session: primary });
     } catch (err) {
       this.log(`glassbox-voice snapshot error: ${err && err.message}`);
     }
@@ -60,15 +68,24 @@ class GlassboxVoice {
   speak(text) {
     const t = String(text || "").trim();
     if (!t) return Promise.resolve();
-    this._speak(t);
+    this._speak(t, { milestone: "manual" });
     return this._inflight || Promise.resolve();
   }
 
-  _speak(text) {
+  _speak(text, meta = {}) {
     if (this.speaking) return;
     this.speaking = true;
+    const resolvedText = String(this.resolveText(text, meta) || "").trim();
+    if (!resolvedText) {
+      this.speaking = false;
+      this._inflight = null;
+      return;
+    }
     this._inflight = Promise.resolve()
-      .then(() => this.synth(text))
+      .then(() => {
+        try { this.onSpeak(resolvedText, meta); } catch {}
+        return this.synth(resolvedText);
+      })
       .then((audio) => { if (audio) this.play(audio); })
       .catch((err) => this.log(`glassbox-voice tts error: ${err && err.message}`))
       .finally(() => { this.speaking = false; });

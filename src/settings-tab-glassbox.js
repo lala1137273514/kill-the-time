@@ -22,7 +22,7 @@
     { key: "wakeWordEnabled", labelKey: "glassboxWakeWord", descKey: "glassboxWakeWordDesc", type: "toggle" },
     {
       key: "confirmMode", labelKey: "glassboxConfirmMode", descKey: "glassboxConfirmModeDesc", type: "select",
-      options: [["always", "glassboxConfirmAlways"], ["writes-only", "glassboxConfirmWritesOnly"]],
+      options: [["agent-native", "glassboxConfirmAgentNative"], ["always", "glassboxConfirmAlways"], ["writes-only", "glassboxConfirmWritesOnly"]],
     },
     {
       key: "permissionMode", labelKey: "glassboxPermissionMode", descKey: "glassboxPermissionModeDesc", type: "select",
@@ -34,8 +34,31 @@
         ["default", "glassboxPermissionDefault"],
       ],
     },
-    { key: "orchestratorModel", labelKey: "glassboxOrchModel", descKey: "glassboxOrchModelDesc", type: "text", placeholderKey: "glassboxOrchModelPlaceholder" },
-    { key: "ttsVoice", labelKey: "glassboxTtsVoice", descKey: "glassboxTtsVoiceDesc", type: "text", placeholderKey: "glassboxTtsVoicePlaceholder" },
+    { group: "LLM 对话模型", key: "orchestratorModel", label: "模型", desc: "用于理解/规划派活的 OpenAI 兼容模型。", type: "text", placeholder: "留空 = qwen-plus" },
+    { group: "LLM 对话模型", key: "orchestratorApiUrl", label: "基础地址", desc: "OpenAI 兼容 chat completions 地址。", type: "text", placeholder: "留空 = DashScope 兼容端点" },
+    { group: "LLM 对话模型", key: "orchestratorApiKey", label: "API 密钥", desc: "留空时读取 BAILIAN_API_KEY / DASHSCOPE_API_KEY。", type: "password", placeholder: "不在代码里保存默认密钥" },
+    { group: "TTS 语音播报", key: "ttsModel", label: "模型", desc: "用于 Agent 事件旁白。", type: "text", placeholder: "留空 = qwen3-tts-flash" },
+    { group: "TTS 语音播报", key: "ttsApiUrl", label: "基础地址", desc: "DashScope TTS 生成接口地址。", type: "text", placeholder: "留空 = DashScope TTS 端点" },
+    { group: "TTS 语音播报", key: "ttsVoice", label: "音色", desc: "TTS voice 参数。", type: "text", placeholder: "留空 = Cherry" },
+    { group: "TTS 语音播报", key: "ttsApiKey", label: "API 密钥", desc: "留空时优先读取 DASHSCOPE_TTS_API_KEY，再回退共享密钥。", type: "password", placeholder: "可单独配置 TTS Key" },
+    { group: "TTS 事件开关", key: "ttsEventStart", labelKey: "glassboxTtsEventStart", descKey: "glassboxTtsEventStartDesc", type: "toggle" },
+    { group: "TTS 事件开关", key: "ttsEventFanout", labelKey: "glassboxTtsEventFanout", descKey: "glassboxTtsEventFanoutDesc", type: "toggle" },
+    { group: "TTS 事件开关", key: "ttsEventWaiting", label: "等待确认时播报", desc: "权限/提问卡住时提醒你处理。", type: "toggle" },
+    { group: "TTS 事件开关", key: "ttsEventCompacting", label: "压缩上下文时播报", desc: "说明它在清扫上下文，不是卡死。", type: "toggle" },
+    { group: "TTS 事件开关", key: "ttsEventStuck", labelKey: "glassboxTtsEventStuck", descKey: "glassboxTtsEventStuckDesc", type: "toggle" },
+    { group: "TTS 事件开关", key: "ttsEventError", label: "报错时播报", desc: "执行失败时提醒查看终端。", type: "toggle" },
+    { group: "TTS 事件开关", key: "ttsEventDone", labelKey: "glassboxTtsEventDone", descKey: "glassboxTtsEventDoneDesc", type: "toggle" },
+    { group: "TTS 文案", key: "ttsTextStart", label: "开始", desc: "留空使用内置随机短句。", type: "text", placeholder: "例如：收到，我开始拆这件事了" },
+    { group: "TTS 文案", key: "ttsTextFanout", label: "并行", desc: "可用 {n} 表示子任务数量。", type: "text", placeholder: "例如：我兵分 {n} 路同时查" },
+    { group: "TTS 文案", key: "ttsTextWaiting", label: "等待确认", desc: "权限/提问等待你的时候说。", type: "text", placeholder: "例如：它停在确认点了，需要你批一下" },
+    { group: "TTS 文案", key: "ttsTextCompacting", label: "压缩上下文", desc: "压缩/清扫时说。", type: "text", placeholder: "例如：正在整理上下文，马上继续" },
+    { group: "TTS 文案", key: "ttsTextLongRun", label: "执行较久", desc: "长时间同一工具无进展时说。", type: "text", placeholder: "例如：这步有点久，我还在盯着" },
+    { group: "TTS 文案", key: "ttsTextError", label: "报错", desc: "失败或中断时说。", type: "text", placeholder: "例如：出岔子了，你看一眼终端" },
+    { group: "TTS 文案", key: "ttsTextDone", label: "完成", desc: "任务完成时说。", type: "text", placeholder: "例如：搞定，结果给你了" },
+    { group: "TTS 文案", key: "ttsTextDrag", label: "拖拽", desc: "被拖动时偶尔说。", type: "text", placeholder: "例如：好好好，换个地方站" },
+    { group: "ASR 语音识别", key: "asrModel", label: "模型", desc: "配置远端时使用 Paraformer；本地 fallback 使用 Whisper。", type: "text", placeholder: "留空 = paraformer-realtime-v2 / local small" },
+    { group: "ASR 语音识别", key: "asrApiUrl", label: "基础地址", desc: "DashScope ASR WebSocket 地址。", type: "text", placeholder: "留空 = DashScope ASR 端点或本地 ASR" },
+    { group: "ASR 语音识别", key: "asrApiKey", label: "API 密钥", desc: "留空时优先读取 DASHSCOPE_ASR_API_KEY，再回退共享密钥。", type: "password", placeholder: "可单独配置 ASR Key" },
     {
       key: "whisperModel", labelKey: "glassboxWhisperModel", descKey: "glassboxWhisperModelDesc", type: "select",
       options: [
@@ -73,12 +96,12 @@
     text.className = "row-text";
     const label = document.createElement("span");
     label.className = "row-label";
-    label.textContent = t(spec.labelKey);
+    label.textContent = spec.label || t(spec.labelKey);
     text.appendChild(label);
-    if (spec.descKey) {
+    if (spec.desc || spec.descKey) {
       const desc = document.createElement("span");
       desc.className = "row-desc";
-      desc.textContent = t(spec.descKey);
+      desc.textContent = spec.desc || t(spec.descKey);
       text.appendChild(desc);
     }
     row.appendChild(text);
@@ -154,10 +177,10 @@
 
   function buildTextInput(spec, ctrl) {
     const input = document.createElement(spec.type === "textarea" ? "textarea" : "input");
-    if (spec.type !== "textarea") input.type = "text";
+    if (spec.type !== "textarea") input.type = spec.type === "password" ? "password" : "text";
     input.className = "hardware-buddy-text-input glassbox-text-input";
     input.value = gbValue(spec.key) || "";
-    if (spec.placeholderKey) input.placeholder = t(spec.placeholderKey);
+    if (spec.placeholder || spec.placeholderKey) input.placeholder = spec.placeholder || t(spec.placeholderKey);
     let timer = null;
     input.addEventListener("input", () => {
       if (timer) clearTimeout(timer);
@@ -194,8 +217,15 @@
     subtitle.textContent = t("glassboxTabDesc");
     container.appendChild(subtitle);
 
-    const rows = SPEC.map((spec) => buildRow(spec));
-    container.appendChild(helpers.buildSection("", rows));
+    const groups = new Map();
+    for (const spec of SPEC) {
+      const group = spec.group || "基础";
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push(buildRow(spec));
+    }
+    for (const [group, rows] of groups) {
+      container.appendChild(helpers.buildSection(group, rows));
+    }
   }
 
   function init(core) {

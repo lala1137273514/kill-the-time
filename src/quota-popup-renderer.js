@@ -11,6 +11,7 @@ const { formatPct, formatCountdown, usageColor } = require("./quota");
 const elState = document.getElementById("state");
 const elPrimary = document.getElementById("primary");
 const elWeekly = document.getElementById("weekly");
+const elCodex = document.getElementById("codex");
 
 const STATUS_MSG = {
   loading: "加载中…",
@@ -36,10 +37,29 @@ function rowHtml(w, primary) {
 
 function show(el, on) { el.classList.toggle("hidden", !on); }
 
+function renderCodex(codex) {
+  if (!codex) { show(elCodex, false); return; }
+  const ok = codex.status === "ok" || codex.status === "stale";
+  const windows = Array.isArray(codex.windows) ? codex.windows : [];
+  const windowRows = windows.length > 0
+    ? `<div class="codex-windows">${windows.map((w) => rowHtml({ ...w, label: `Codex ${w.label || "额度"}` }, false)).join("")}</div>`
+    : "";
+  const fallbackMessage = codex.status === "expired" ? "需重新登录"
+    : codex.status === "error" ? (codex.message || "读取失败")
+    : codex.status === "stale" ? "刷新失败，显示上次数据"
+    : codex.message || "已登录";
+  elCodex.innerHTML = `<div class="codex-row">
+    <span class="codex-dot ${ok ? "ok" : ""}"></span>
+    <div><div class="codex-title">Codex</div><div class="codex-msg">${escapeHtml(fallbackMessage)}</div></div>
+  </div>${windowRows}`;
+  show(elCodex, codex.status !== "not_logged_in");
+}
+
 function render(data) {
   if (!data || data.status === "loading") {
-    elState.textContent = STATUS_MSG.loading; show(elState, true); show(elPrimary, false); show(elWeekly, false); return;
+    elState.textContent = STATUS_MSG.loading; show(elState, true); show(elPrimary, false); show(elWeekly, false); show(elCodex, false); return;
   }
+  renderCodex(data.codex);
   if (data.status === "ok" || data.status === "stale") {
     const ws = data.windows || [];
     const primary = ws.find((w) => w.key === "five_hour");

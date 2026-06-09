@@ -6,11 +6,17 @@ const assert = require("node:assert");
 const { CONFIRM_MODES, needsConfirmation } = require("../src/glassbox-router");
 
 describe("glassbox-router needsConfirmation", () => {
-  it("defaults to always-confirm (no behavior change without a policy)", () => {
-    assert.strictEqual(needsConfirmation({ risk: "read" }, {}), true);
-    assert.strictEqual(needsConfirmation({ risk: "write" }, {}), true);
-    assert.strictEqual(needsConfirmation({ risk: "read" }), true);
-    assert.strictEqual(needsConfirmation({ risk: "read" }, { confirmMode: "bogus" }), true);
+  it("defaults to agent-native (no extra pre-dispatch confirm)", () => {
+    assert.strictEqual(needsConfirmation({ risk: "read" }, {}), false);
+    assert.strictEqual(needsConfirmation({ risk: "write" }, {}), false);
+    assert.strictEqual(needsConfirmation({ risk: "read" }), false);
+    assert.strictEqual(needsConfirmation({ risk: "read" }, { confirmMode: "bogus" }), false);
+    assert.strictEqual(needsConfirmation({ risk: "write" }, { confirmMode: "agent-native" }), false);
+  });
+
+  it("always mode confirms every dispatch", () => {
+    assert.strictEqual(needsConfirmation({ risk: "read" }, { confirmMode: "always" }), true);
+    assert.strictEqual(needsConfirmation({ risk: "write" }, { confirmMode: "always" }), true);
   });
 
   it("writes-only mode skips confirm for read-only, keeps it for writes", () => {
@@ -25,6 +31,6 @@ describe("glassbox-router needsConfirmation", () => {
   });
 
   it("exposes the valid confirm modes", () => {
-    assert.deepStrictEqual([...CONFIRM_MODES].sort(), ["always", "writes-only"]);
+    assert.deepStrictEqual([...CONFIRM_MODES].sort(), ["agent-native", "always", "writes-only"]);
   });
 });

@@ -30,7 +30,8 @@ function makeRemote(over = {}) {
     confirmDispatch: over.confirmDispatch || (async () => { calls.confirms++; return true; }),
     getPending: over.getPending || (() => ({})),
     onPhase: over.onPhase || ((p) => calls.phases.push(p)),
-    shouldConfirm: over.shouldConfirm,
+    shouldConfirm: Object.prototype.hasOwnProperty.call(over, "shouldConfirm") ? over.shouldConfirm : () => true,
+    getDefaultAgent: over.getDefaultAgent,
     defaultCwd: "defaultCwd" in over ? over.defaultCwd : "/home/me",
     log: () => {},
   };
@@ -110,6 +111,16 @@ describe("GlassboxRemote", () => {
     await remote.handle("继续上面那个");
     assert.strictEqual(calls.dispatched[0].mode, "resume");
     assert.strictEqual(calls.dispatched[0].sessionId, "s7");
+  });
+
+  it("uses the default dispatch agent when the foreground window has no matched agent", async () => {
+    const { remote, calls } = makeRemote({
+      getForegroundWindow: async () => ({ title: "Editor", sessionId: null, cwd: "/work", agentId: null }),
+      getDefaultAgent: () => "codex",
+      orchestrate: async () => ({ action: "dispatch", refinedPrompt: "检查项目", needCapture: false, risk: "read", reply: "好" }),
+    });
+    await remote.handle("检查一下");
+    assert.strictEqual(calls.dispatched[0].agent, "codex");
   });
 
   it("asks for a directory instead of guessing — and never reaches confirm", async () => {
@@ -312,11 +323,19 @@ describe("GlassboxRemote shouldConfirm (dispatch routing policy)", () => {
     assert.ok(calls.spoken.some((t) => /对吗/.test(t)));
   });
 
-  it("defaults to confirming when shouldConfirm is not injected", async () => {
-    const { remote, calls } = makeRemote({
+  it("raw remote defaults to agent-native confirmation when shouldConfirm is not injected", async () => {
+    const calls = { confirms: 0, dispatched: 0 };
+    const raw = new GlassboxRemote({
       orchestrate: async () => ({ action: "dispatch", refinedPrompt: "x", needCapture: false, risk: "read", reply: "好" }),
+      getForegroundWindow: async () => ({ title: "T", cwd: "/work", agentId: "codex" }),
+      takeScreenshot: async () => "",
+      dispatchFn: () => { calls.dispatched++; },
+      resolvePermission: () => {},
+      speak: () => {},
+      confirmDispatch: async () => { calls.confirms++; return true; },
     });
-    await remote.handle("做事");
-    assert.strictEqual(calls.confirms, 1);
+    await raw.handle("做事");
+    assert.strictEqual(calls.confirms, 0);
+    assert.strictEqual(calls.dispatched, 1);
   });
 });

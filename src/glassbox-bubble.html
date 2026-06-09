@@ -12,17 +12,22 @@
     align-items: center;
     gap: 8px;
     padding: 0 14px;
-    background: rgba(28, 28, 30, 0.96);
-    border: 1px solid rgba(120, 170, 255, 0.28);
-    border-radius: 14px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.092), rgba(255,255,255,0.026) 45%, transparent),
+      rgba(22, 26, 31, 0.78);
+    -webkit-backdrop-filter: saturate(180%) blur(22px);
+    backdrop-filter: saturate(180%) blur(22px);
+    border: 1px solid rgba(255,255,255,0.13);
+    border-top-color: rgba(255,255,255,0.24);
+    border-radius: 8px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.30), 0 1px 0 rgba(255,255,255,0.055) inset;
     color: #fff;
     opacity: 0;
     transform: translateY(4px);
     transition: opacity 140ms ease, transform 140ms ease;
   }
   #bubble.show { opacity: 1; transform: translateY(0); }
-  #emoji { font-size: 18px; line-height: 1; }
+  #emoji { display: none; }
   #text { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* a soft breathing glow while a step is in flight */
   #bubble.live { animation: pulse 1.4s ease-in-out infinite; }

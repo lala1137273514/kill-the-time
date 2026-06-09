@@ -11,6 +11,7 @@ const { ipcRenderer } = require("electron");
 const card = document.getElementById("card");
 const emojiEl = document.getElementById("emoji");
 const statusEl = document.getElementById("status");
+const speechEl = document.getElementById("speech");
 const activityEl = document.getElementById("activity");
 const chatEl = document.getElementById("chat");
 const permSummaryEl = document.getElementById("perm-summary");
@@ -19,7 +20,7 @@ const approveBtn = document.getElementById("perm-approve");
 const denyBtn = document.getElementById("perm-deny");
 
 function showOnly(...els) {
-  for (const el of [activityEl, chatEl, permSummaryEl, permButtonsEl]) {
+  for (const el of [speechEl, activityEl, chatEl, permSummaryEl, permButtonsEl]) {
     el.classList.toggle("hidden", !els.includes(el));
   }
 }
@@ -49,7 +50,10 @@ ipcRenderer.on("glassbox-card-render", (_e, p) => {
   // The header row carries the emoji+status for every mode except chat, where
   // the reply is the content; keep the header for context but allow it empty.
 
-  if (mode === "activity") {
+  if (mode === "speech") {
+    showOnly(speechEl);
+    speechEl.textContent = String(p.text || p.status || "");
+  } else if (mode === "activity") {
     showOnly(activityEl);
     if (p.reset) clearActivity();
     const lines = Array.isArray(p.lines) ? p.lines : (p.line != null ? [p.line] : []);
@@ -74,6 +78,7 @@ ipcRenderer.on("glassbox-card-render", (_e, p) => {
 ipcRenderer.on("glassbox-card-hide", () => {
   card.classList.remove("show", "live");
   clearActivity();
+  speechEl.textContent = "";
   chatEl.textContent = "";
   permSummaryEl.textContent = "";
   showOnly();

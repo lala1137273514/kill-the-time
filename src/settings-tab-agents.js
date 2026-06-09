@@ -10,6 +10,7 @@
   let readers = null;
   let helpers = null;
   let ops = null;
+  const DEMO_AGENT_IDS = new Set(["codex", "claude-code"]);
   const CODEX_PERMISSION_MODE_OPTIONS = [
     { id: "native", labelKey: "codexPermissionModeNative" },
     { id: "intercept", labelKey: "codexPermissionModeIntercept" },
@@ -20,13 +21,16 @@
   }
 
   function render(parent) {
+    const demoMode = window.settingsAPI && window.settingsAPI.demoSettingsMode === true;
     const h1 = document.createElement("h1");
-    h1.textContent = t("agentsTitle");
+    h1.textContent = demoMode ? "Agent 连接" : t("agentsTitle");
     parent.appendChild(h1);
 
     const subtitle = document.createElement("p");
     subtitle.className = "subtitle";
-    subtitle.textContent = t("agentsSubtitle");
+    subtitle.textContent = demoMode
+      ? "展示版只保留 Codex 与 Claude Code 的追踪、权限和提醒开关。"
+      : t("agentsSubtitle");
     parent.appendChild(subtitle);
 
     if (!runtime.agentMetadata || runtime.agentMetadata.length === 0) {
@@ -37,9 +41,12 @@
       return;
     }
 
-    const agents = typeof sortAgentMetadataForSettings === "function"
+    const sortedAgents = typeof sortAgentMetadataForSettings === "function"
       ? sortAgentMetadataForSettings(runtime.agentMetadata)
       : runtime.agentMetadata;
+    const agents = demoMode
+      ? sortedAgents.filter((agent) => agent && DEMO_AGENT_IDS.has(agent.id))
+      : sortedAgents;
     const groups = agents.map((agent) => buildAgentGroup(agent));
     parent.appendChild(helpers.buildSection("", groups));
   }

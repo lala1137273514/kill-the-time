@@ -47,6 +47,8 @@ const DRAG_THRESHOLD = 3;
 // --- Reaction state (tracked here to gate input) ---
 let isReacting = false;
 let isDragReacting = false;
+let lastPetHoverSignalAt = 0;
+const PET_HOVER_SIGNAL_MS = 220;
 
 // Cancel signal from main (e.g. state change)
 window.hitAPI.onCancelReaction(() => {
@@ -180,8 +182,8 @@ function handleClick(clientX) {
   clickCount++;
   if (clickCount === 1) {
     firstClickDir = clientX < area.offsetWidth / 2 ? "left" : "right";
-    // First click reveals the session HUD. Lightweight side effect — NOT
-    // gated by isReacting (HUD reveal is independent of pet animation).
+    // First click refreshes the pet-adjacent HUD. Lightweight side effect —
+    // NOT gated by isReacting (HUD reveal is independent of pet animation).
     window.hitAPI.revealSessionHud();
   }
 
@@ -257,12 +259,23 @@ document.addEventListener("contextmenu", (e) => {
   window.hitAPI.showContextMenu();
 });
 
+function signalPetHoverEnter(force = false) {
+  const t = Date.now();
+  if (!force && t - lastPetHoverSignalAt < PET_HOVER_SIGNAL_MS) return;
+  lastPetHoverSignalAt = t;
+  if (window.hitAPI && window.hitAPI.petHoverEnter) window.hitAPI.petHoverEnter();
+}
+
 // --- Hover HUD (item 4): open the action toolbar when the cursor is on the pet.
 // Doesn't touch drag/click/right-click. Suppress leave during a drag so dragging
 // the pet out doesn't collapse the HUD mid-gesture; main's delayed dismiss does
-// the rest of the combined pet+HUD zone bridging.
+// the rest of the combined pet+HUD zone bridging. pointermove is a small rescue
+// path for platforms/window stacks that occasionally miss pointerenter.
 area.addEventListener("pointerenter", () => {
-  if (window.hitAPI && window.hitAPI.petHoverEnter) window.hitAPI.petHoverEnter();
+  signalPetHoverEnter(true);
+});
+area.addEventListener("pointermove", () => {
+  if (!isDragging) signalPetHoverEnter(false);
 });
 area.addEventListener("pointerleave", () => {
   if (isDragging) return;

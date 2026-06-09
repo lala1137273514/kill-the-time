@@ -16,6 +16,11 @@ const path = require("path");
 
 const WIDTH = 320;
 const HEIGHT = 200;
+const SPEECH_HEIGHT = 84;
+const STATUS_HEIGHT = 92;
+const ACTIVITY_HEIGHT = 150;
+const CHAT_HEIGHT = 142;
+const PERMISSION_HEIGHT = 186;
 const GAP = 8;
 const MARGIN = 8;
 const isWin = process.platform === "win32";
@@ -46,12 +51,22 @@ function computeCardBounds({ petBounds, workArea, width, height, gap = GAP, marg
 function initGlassboxCard(ctx = {}) {
   let card = null;
   let hideTimer = null;
+  let currentHeight = STATUS_HEIGHT;
+
+  function heightForPayload(payload) {
+    const mode = payload && payload.mode;
+    if (mode === "speech") return SPEECH_HEIGHT;
+    if (mode === "permission") return PERMISSION_HEIGHT;
+    if (mode === "activity") return ACTIVITY_HEIGHT;
+    if (mode === "chat") return CHAT_HEIGHT;
+    return STATUS_HEIGHT;
+  }
 
   function ensure() {
     if (card && !card.isDestroyed()) return card;
     const { BrowserWindow } = require("electron");
     card = new BrowserWindow({
-      width: WIDTH, height: HEIGHT, show: false, frame: false, transparent: true,
+      width: WIDTH, height: STATUS_HEIGHT, show: false, frame: false, transparent: true,
       alwaysOnTop: true, resizable: false, skipTaskbar: true, hasShadow: false, focusable: false,
       ...(isMac ? { type: "panel" } : {}),
       webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
@@ -68,12 +83,13 @@ function initGlassboxCard(ctx = {}) {
     const pb = ctx.getPetWindowBounds();
     if (!pb) return;
     const wa = ctx.getNearestWorkArea(pb.x + pb.width / 2, pb.y + pb.height / 2);
-    try { card.setBounds(computeCardBounds({ petBounds: pb, workArea: wa, width: WIDTH, height: HEIGHT })); } catch {}
+    try { card.setBounds(computeCardBounds({ petBounds: pb, workArea: wa, width: WIDTH, height: currentHeight })); } catch {}
   }
 
   function render(payload) {
     if (ctx.petHidden) return;
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    currentHeight = heightForPayload(payload);
     const win = ensure();
     // Permission mode needs the buttons to be clickable, so the card grabs
     // focus; every other mode stays inactive so it never steals the user's
@@ -96,6 +112,7 @@ function initGlassboxCard(ctx = {}) {
     // a terminal status clears fast; everything else has a safety-net timeout.
     const m = payload && payload.mode;
     const delay = m === "permission" ? 0
+      : m === "speech" ? 5200
       : (m === "status" && payload && payload.terminal) ? 2500
       : m === "chat" ? 6000
       : 8000;

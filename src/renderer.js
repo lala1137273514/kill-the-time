@@ -10,12 +10,41 @@ const LOW_POWER_IDLE_PAUSE_MS = 5000;
 const SWAP_LOAD_FALLBACK_MS = 3000;
 const SWAP_VISIBILITY_RESCUE_BUFFER_MS = 750;
 const LOW_POWER_PAUSE_STYLE_ID = "clawd-low-power-pause-svg";
+const GLASSBOX_SPEAKING_STYLE_ID = "clawd-glassbox-speaking-style";
 const LOW_POWER_PAUSE_STATES = new Set(["idle", "mini-idle", "dozing"]);
 const LOW_POWER_BOUNDARY_EPSILON_MS = 80;
 const CLOUDLING_POINTER_BRIDGE_STATES = new Set(["idle", "mini-idle", "mini-peek"]);
 let lowPowerIdleMode = false;
 let lowPowerIdlePauseTimer = null;
 let lowPowerSvgPaused = false;
+let glassboxSpeakingTimer = null;
+
+function ensureGlassboxSpeakingStyle() {
+  if (document.getElementById(GLASSBOX_SPEAKING_STYLE_ID)) return;
+  const st = document.createElement("style");
+  st.id = GLASSBOX_SPEAKING_STYLE_ID;
+  st.textContent = `
+@keyframes clawdGlassboxSpeak {
+  0%, 100% { filter: saturate(1) brightness(1); opacity: 1; }
+  35% { filter: saturate(1.1) brightness(1.035); opacity: .985; }
+  70% { filter: saturate(1.04) brightness(1.015); opacity: 1; }
+}
+#clawd.glassbox-speaking {
+  animation: clawdGlassboxSpeak 360ms ease-in-out infinite;
+}`;
+  (document.head || document.documentElement).appendChild(st);
+}
+
+function setGlassboxSpeaking(on, durationMs = 0) {
+  ensureGlassboxSpeakingStyle();
+  if (glassboxSpeakingTimer) clearTimeout(glassboxSpeakingTimer);
+  glassboxSpeakingTimer = null;
+  if (!clawdEl) return;
+  clawdEl.classList.toggle("glassbox-speaking", !!on);
+  if (on && durationMs > 0) {
+    glassboxSpeakingTimer = setTimeout(() => setGlassboxSpeaking(false), durationMs);
+  }
+}
 
 // ── Theme config (injected via preload.js additionalArguments) ──
 let tc = window.themeConfig || {};
@@ -1412,8 +1441,13 @@ if (!currentDisplayedSvg && _idleFollowSvg) {
       try {
         const audio = new Audio(p && p.url);
         if (p && typeof p.volume === "number") audio.volume = p.volume;
-        audio.play().catch(() => {});
+        const durationMs = p && Number.isFinite(p.durationMs) ? Math.max(500, p.durationMs) : 1800;
+        setGlassboxSpeaking(true, durationMs + 250);
+        audio.addEventListener("ended", () => setGlassboxSpeaking(false), { once: true });
+        audio.addEventListener("error", () => setGlassboxSpeaking(false), { once: true });
+        audio.play().catch(() => setGlassboxSpeaking(false));
       } catch (err) {
+        setGlassboxSpeaking(false);
         console.warn("glassbox-voice: play failed:", err);
       }
     });

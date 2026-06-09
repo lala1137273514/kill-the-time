@@ -28,6 +28,7 @@ const shortcutRecordKeyListeners = new Set();
 const remoteSshStatusListeners = new Set();
 const remoteSshProgressListeners = new Set();
 const hardwareBuddyStatusListeners = new Set();
+const selectTabListeners = new Set();
 ipcRenderer.on("settings-changed", (_event, payload) => {
   for (const cb of listeners) {
     try { cb(payload); } catch (err) { console.warn("settings onChanged listener threw:", err); }
@@ -58,8 +59,14 @@ ipcRenderer.on("hardwareBuddy:status-changed", (_event, payload) => {
     try { cb(payload); } catch (err) { console.warn("hardwareBuddy status listener threw:", err); }
   }
 });
+ipcRenderer.on("settings:select-tab", (_event, payload) => {
+  for (const cb of selectTabListeners) {
+    try { cb(payload); } catch (err) { console.warn("settings select-tab listener threw:", err); }
+  }
+});
 
 contextBridge.exposeInMainWorld("settingsAPI", {
+  demoSettingsMode: true,
   getSnapshot: () => ipcRenderer.invoke("settings:get-snapshot"),
   getShortcutFailures: () => ipcRenderer.invoke("settings:getShortcutFailures"),
   getAnimationOverridesData: () => ipcRenderer.invoke("settings:get-animation-overrides-data"),
@@ -123,6 +130,11 @@ contextBridge.exposeInMainWorld("settingsAPI", {
     if (typeof cb !== "function") return () => {};
     hardwareBuddyStatusListeners.add(cb);
     return () => hardwareBuddyStatusListeners.delete(cb);
+  },
+  onSelectTab: (cb) => {
+    if (typeof cb !== "function") return () => {};
+    selectTabListeners.add(cb);
+    return () => selectTabListeners.delete(cb);
   },
 });
 

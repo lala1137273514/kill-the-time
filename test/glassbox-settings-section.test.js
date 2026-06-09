@@ -17,7 +17,7 @@ describe("buildGlassboxSettingsSpec — shape", () => {
     assert.ok(spec.length > 0, "spec must not be empty");
   });
 
-  it("covers exactly the nine glassbox knobs, in a stable order", () => {
+  it("covers exactly the glassbox knobs, in a stable order", () => {
     const keys = buildGlassboxSettingsSpec().map((r) => r.key);
     assert.deepStrictEqual(keys, [
       "voiceEnabled",
@@ -25,7 +25,30 @@ describe("buildGlassboxSettingsSpec — shape", () => {
       "confirmMode",
       "permissionMode",
       "orchestratorModel",
+      "orchestratorApiUrl",
+      "orchestratorApiKey",
+      "ttsModel",
+      "ttsApiUrl",
       "ttsVoice",
+      "ttsApiKey",
+      "ttsEventStart",
+      "ttsEventFanout",
+      "ttsEventWaiting",
+      "ttsEventCompacting",
+      "ttsEventStuck",
+      "ttsEventError",
+      "ttsEventDone",
+      "ttsTextStart",
+      "ttsTextFanout",
+      "ttsTextWaiting",
+      "ttsTextCompacting",
+      "ttsTextLongRun",
+      "ttsTextError",
+      "ttsTextDone",
+      "ttsTextDrag",
+      "asrModel",
+      "asrApiUrl",
+      "asrApiKey",
       "whisperModel",
       "hotkey",
       "systemPrompt",
@@ -39,12 +62,10 @@ describe("buildGlassboxSettingsSpec — shape", () => {
     }
   });
 
-  it("never surfaces a secret/API-key field", () => {
-    for (const row of buildGlassboxSettingsSpec()) {
-      assert.ok(
-        !/(api.?key|access.?key|secret|token|password)/i.test(row.key),
-        `secret-ish field leaked into UI spec: ${row.key}`
-      );
+  it("surfaces local API key overrides as password fields", () => {
+    for (const key of ["orchestratorApiKey", "ttsApiKey", "asrApiKey"]) {
+      const row = buildGlassboxSettingsSpec().find((r) => r.key === key);
+      assert.strictEqual(row.type, "password", `${key} should be password`);
     }
   });
 
@@ -63,7 +84,7 @@ describe("buildGlassboxSettingsSpec — per-row contracts", () => {
   }
 
   it("every row has key, label (zh, non-empty string) and a valid type", () => {
-    const validTypes = new Set(["toggle", "select", "text"]);
+    const validTypes = new Set(["toggle", "select", "text", "password"]);
     for (const row of buildGlassboxSettingsSpec()) {
       assert.strictEqual(typeof row.key, "string");
       assert.ok(row.key.length > 0);
@@ -78,10 +99,17 @@ describe("buildGlassboxSettingsSpec — per-row contracts", () => {
   it("boolean knobs render as toggles", () => {
     assert.strictEqual(rowFor("voiceEnabled").type, "toggle");
     assert.strictEqual(rowFor("wakeWordEnabled").type, "toggle");
+    assert.strictEqual(rowFor("ttsEventStart").type, "toggle");
+    assert.strictEqual(rowFor("ttsEventFanout").type, "toggle");
+    assert.strictEqual(rowFor("ttsEventWaiting").type, "toggle");
+    assert.strictEqual(rowFor("ttsEventCompacting").type, "toggle");
+    assert.strictEqual(rowFor("ttsEventStuck").type, "toggle");
+    assert.strictEqual(rowFor("ttsEventError").type, "toggle");
+    assert.strictEqual(rowFor("ttsEventDone").type, "toggle");
   });
 
   it("free-text knobs render as text", () => {
-    for (const key of ["orchestratorModel", "ttsVoice", "hotkey", "systemPrompt"]) {
+    for (const key of ["orchestratorModel", "orchestratorApiUrl", "ttsModel", "ttsApiUrl", "ttsVoice", "ttsTextStart", "ttsTextFanout", "ttsTextWaiting", "ttsTextCompacting", "ttsTextLongRun", "ttsTextError", "ttsTextDone", "ttsTextDrag", "asrModel", "asrApiUrl", "hotkey", "systemPrompt"]) {
       assert.strictEqual(rowFor(key).type, "text", `${key} should be text`);
     }
   });
@@ -117,7 +145,7 @@ describe("buildGlassboxSettingsSpec — per-row contracts", () => {
 
   it("text rows do not carry an options array", () => {
     for (const row of buildGlassboxSettingsSpec()) {
-      if (row.type === "text" || row.type === "toggle") {
+      if (row.type === "text" || row.type === "password" || row.type === "toggle") {
         assert.strictEqual(row.options, undefined, `${row.key} (${row.type}) must not have options`);
       }
     }
@@ -165,10 +193,15 @@ describe("validateGlassboxField — strict, let-it-crash (no silent fallback)", 
     assert.strictEqual(validateGlassboxField("voiceEnabled", "yes").status, "error");
     assert.strictEqual(validateGlassboxField("wakeWordEnabled", 1).status, "error");
     assert.strictEqual(validateGlassboxField("voiceEnabled", true).status, "ok");
+    assert.strictEqual(validateGlassboxField("ttsEventStart", false).status, "ok");
+    assert.strictEqual(validateGlassboxField("ttsEventWaiting", false).status, "ok");
+    assert.strictEqual(validateGlassboxField("ttsEventCompacting", false).status, "ok");
+    assert.strictEqual(validateGlassboxField("ttsEventError", false).status, "ok");
+    assert.strictEqual(validateGlassboxField("ttsEventDone", "yes").status, "error");
   });
 
   it("string knobs reject non-string input but accept empty string (= unset)", () => {
-    for (const key of ["hotkey", "orchestratorModel", "ttsVoice", "systemPrompt"]) {
+    for (const key of ["hotkey", "orchestratorModel", "orchestratorApiUrl", "orchestratorApiKey", "ttsModel", "ttsApiUrl", "ttsVoice", "ttsApiKey", "ttsTextStart", "ttsTextFanout", "ttsTextWaiting", "ttsTextCompacting", "ttsTextLongRun", "ttsTextError", "ttsTextDone", "ttsTextDrag", "asrModel", "asrApiUrl", "asrApiKey", "systemPrompt"]) {
       assert.strictEqual(validateGlassboxField(key, 42).status, "error", `${key} should reject number`);
       assert.strictEqual(validateGlassboxField(key, "").status, "ok", `${key} should accept '' as unset`);
       assert.strictEqual(validateGlassboxField(key, "x").status, "ok", `${key} should accept a string`);

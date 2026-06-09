@@ -35,6 +35,7 @@ const {
   sessionSnapshotSignature,
 } = require("./state-session-snapshot");
 const { getAgentIconUrl } = require("./state-agent-icons");
+const { inferDisplayHintFromTool } = require("./agent-supervisor-semantics");
 
 module.exports = function initState(ctx) {
 
@@ -1050,6 +1051,9 @@ function updateSession(sessionId, state, event, opts = {}) {
   }
 
   debugSession(`event ${describeSession(sessionId, existing)} -> incoming=${state}/${event || "-"} hint=${displayHint || "-"} source=${hookSource || "-"}`);
+  const effectiveDisplayHint = displayHint !== undefined
+    ? displayHint
+    : inferDisplayHintFromTool({ state, event, toolName, displayHintMap: DISPLAY_HINT_MAP });
 
   const pidReachable = resolvePidReachable(existing, srcAgentPid, srcPid);
 
@@ -1114,7 +1118,7 @@ function updateSession(sessionId, state, event, opts = {}) {
     if (existing.state === "juggling") {
       const resumeState = existing.resumeState || null;
       if (resumeState) {
-        const dh = pickDisplayHint(resumeState, existing, displayHint);
+      const dh = pickDisplayHint(resumeState, existing, effectiveDisplayHint);
         sessions.set(sessionId, { state: resumeState, updatedAt: Date.now(), displayHint: dh, ...base, resumeState: null });
         debugSession(`subagent-stop restore ${describeSession(sessionId, sessions.get(sessionId))}`);
       } else {
@@ -1122,7 +1126,7 @@ function updateSession(sessionId, state, event, opts = {}) {
         debugSession(`subagent-stop delete sid=${sessionId} reason=no-resume`);
       }
     } else {
-      const dh = pickDisplayHint(existing.state, existing, displayHint);
+      const dh = pickDisplayHint(existing.state, existing, effectiveDisplayHint);
       sessions.set(sessionId, { state: existing.state, updatedAt: Date.now(), displayHint: dh, ...base, resumeState: null });
       debugSession(`subagent-stop keep ${describeSession(sessionId, sessions.get(sessionId))}`);
     }
@@ -1152,7 +1156,7 @@ function updateSession(sessionId, state, event, opts = {}) {
     setState(displayState, getSvgOverride(displayState));
     return;
   } else if (preservedState) {
-    const dh = pickDisplayHint(preservedState, existing, displayHint);
+    const dh = pickDisplayHint(preservedState, existing, effectiveDisplayHint);
     sessions.set(sessionId, {
       state: preservedState,
       updatedAt: Date.now(),
@@ -1174,20 +1178,20 @@ function updateSession(sessionId, state, event, opts = {}) {
     }
   } else {
     if (isSubagentStart) {
-      const dh = pickDisplayHint(state, existing, displayHint);
+      const dh = pickDisplayHint(state, existing, effectiveDisplayHint);
       const resumeState = existing && existing.state !== "juggling" ? existing.state : srcResumeState;
       sessions.set(sessionId, { state, updatedAt: Date.now(), displayHint: dh, ...base, resumeState });
       debugSession(`subagent-start store ${describeSession(sessionId, sessions.get(sessionId))}`);
     } else if (existing && existing.state === "juggling" && state === "working") {
       existing.updatedAt = Date.now();
-      existing.displayHint = pickDisplayHint("juggling", existing, displayHint);
+      existing.displayHint = pickDisplayHint("juggling", existing, effectiveDisplayHint);
       // Keep the glass-box telemetry live during the fan-out hold (this branch
       // doesn't spread `base`, so refresh the two fields the HUD reads).
       existing.currentTool = srcCurrentTool;
       existing.subagentCount = srcSubagentCount;
       debugSession(`juggling-hold ${describeSession(sessionId, existing)} event=${event || "-"}`);
     } else {
-      const dh = pickDisplayHint(state, existing, displayHint);
+      const dh = pickDisplayHint(state, existing, effectiveDisplayHint);
       sessions.set(sessionId, { state, updatedAt: Date.now(), displayHint: dh, ...base, resumeState: null });
     }
   }

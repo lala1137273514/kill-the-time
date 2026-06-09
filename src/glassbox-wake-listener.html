@@ -11,9 +11,9 @@
   const { ipcRenderer } = require("electron");
   const { createWakeCapture } = require("./glassbox-wake-capture");
 
-  let stream = null, ac = null, analyser = null, raf = 0, rec = null;
-  let chunks = [];                 // rolling recent audio chunks (~4s)
-  const KEEP = 16;                 // 16 * 250ms
+  let stream = null, ac = null, analyser = null, raf = 0, rec = null, source = null, silent = null;
+  let chunks = [];                 // rolling recent PCM windows
+  const KEEP_MS = 4000;
   let listening = false;
 
   const cap = createWakeCapture({
@@ -23,6 +23,28 @@
     cooldownMs: 3000,
     onClip: () => sendClip(),       // gate closed after speech -> ship the clip
   });
+
+  function encodeWav(floatChunks, sampleRate) {
+    let len = 0;
+    for (const item of floatChunks) len += item.data.length;
+    const data = new Float32Array(len);
+    let off = 0;
+    for (const item of floatChunks) { data.set(item.data, off); off += item.data.length; }
+    const buffer = new ArrayBuffer(44 + data.length * 2);
+    const view = new DataView(buffer);
+    const write = (pos, s) => { for (let i = 0; i < s.length; i++) view.setUint8(pos + i, s.charCodeAt(i)); };
+    write(0, "RIFF"); view.setUint32(4, 36 + data.length * 2, true); write(8, "WAVE");
+    write(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    write(36, "data"); view.setUint32(40, data.length * 2, true);
+    let p = 44;
+    for (let i = 0; i < data.length; i++, p += 2) {
+      const s = Math.max(-1, Math.min(1, data[i]));
+      view.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return buffer;
+  }
 
   async function start() {
     if (listening) return;
@@ -34,16 +56,23 @@
     }
     listening = true;
     ac = new AudioContext();
-    const src = ac.createMediaStreamSource(stream);
+    source = ac.createMediaStreamSource(stream);
     analyser = ac.createAnalyser();
     analyser.fftSize = 1024;
-    src.connect(analyser);
-    const buf = new Float32Array(analyser.fftSize);
-    rec = new MediaRecorder(stream);
-    rec.ondataavailable = (e) => {
-      if (e.data && e.data.size) { chunks.push(e.data); if (chunks.length > KEEP) chunks.shift(); }
+    source.connect(analyser);
+    rec = ac.createScriptProcessor(4096, 1, 1);
+    rec.onaudioprocess = (e) => {
+      const at = performance.now();
+      chunks.push({ at, data: new Float32Array(e.inputBuffer.getChannelData(0)) });
+      const cutoff = at - KEEP_MS;
+      while (chunks.length && chunks[0].at < cutoff) chunks.shift();
     };
-    rec.start(250); // 250ms timeslices
+    silent = ac.createGain();
+    silent.gain.value = 0;
+    source.connect(rec);
+    rec.connect(silent);
+    silent.connect(ac.destination);
+    const buf = new Float32Array(analyser.fftSize);
     const loop = () => {
       if (!listening) return;
       analyser.getFloatTimeDomainData(buf);
@@ -56,18 +85,22 @@
 
   function sendClip() {
     if (!chunks.length) return;
-    const blob = new Blob(chunks.slice(), { type: (rec && rec.mimeType) || "audio/webm" });
-    blob.arrayBuffer().then((ab) => {
-      ipcRenderer.send("glassbox-wake-clip", { buffer: ab, mime: blob.type || "audio/webm" });
-    }).catch(() => {});
+    try {
+      const sampleRate = (ac && ac.sampleRate) || 48000;
+      const ab = encodeWav(chunks.slice(), sampleRate);
+      ipcRenderer.send("glassbox-wake-clip", { buffer: ab, mime: "audio/wav", sampleRate });
+    } catch {}
   }
 
   function stop() {
     listening = false;
     try { cancelAnimationFrame(raf); } catch {}
-    try { if (rec && rec.state !== "inactive") rec.stop(); } catch {}
+    try { if (rec) rec.disconnect(); } catch {}
+    try { if (source) source.disconnect(); } catch {}
+    try { if (silent) silent.disconnect(); } catch {}
     try { if (ac) ac.close(); } catch {}
     try { if (stream) stream.getTracks().forEach((t) => t.stop()); } catch {}
+    rec = null; source = null; silent = null; ac = null; stream = null;
     chunks = [];
     cap.reset();
   }

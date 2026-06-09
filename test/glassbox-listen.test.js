@@ -82,6 +82,18 @@ describe("glassbox-listen GlassboxListener", () => {
     assert.deepStrictEqual(calls.transcripts, ["帮我对比这三家公司"]);
   });
 
+  it("passes clip options through to the ASR layer", async () => {
+    const seen = [];
+    const { d } = deps({
+      transcribe: async (file, opts) => {
+        seen.push({ file, opts });
+        return "帮我查一下";
+      },
+    });
+    await new GlassboxListener(d).onUtterance("/tmp/a.ogg", { mime: "audio/ogg;codecs=opus" });
+    assert.deepStrictEqual(seen, [{ file: "/tmp/a.ogg", opts: { mime: "audio/ogg;codecs=opus" } }]);
+  });
+
   it("reports a transcription failure via onError", async () => {
     const { d, calls } = deps({ transcribe: async () => { throw new Error("whisper down"); } });
     await new GlassboxListener(d).onUtterance("/tmp/a.wav");
